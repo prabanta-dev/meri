@@ -1,0 +1,25 @@
+; output: 199999
+; result: 0
+; 195 MiB in blocks of 1 KiB, each freed before the next: a freed block
+; gives its memory back, so the 64 MiB of the test are enough
+func @main : fn() -> i64 {
+b0:
+  v0 = iconst i64 0
+  br b1(v0)
+b1(v1: i64):
+  v2 = iconst i64 1024
+  v3 = call.rt ptr mem_alloc(v2)
+  store v1, v3
+  v4 = load i64 v3
+  call.rt void mem_free(v3)
+  v5 = iconst i64 1
+  v6 = add i64 v1, v5
+  v7 = iconst i64 200000
+  v8 = icmp.slt i1 v6, v7
+  cbr v8, b1(v6), b2(v4)
+b2(v9: i64):
+  call.rt void print_i64(v9)
+  call.rt void print_nl()
+  v10 = iconst i64 0
+  ret v10
+}

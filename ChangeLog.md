@@ -22,5 +22,10 @@
   instruction and edge) and in memory (store, load, retain and release
   of a type, typed slots released at every return); the last reference
   frees the string. `test_vm` checks how many are alive at the end.
+- The memory of a freed block is reused. In STRICT a pointer carries the
+  generation of its block in its 16 high bits, new at every block at the
+  same address: a dangling pointer never equals a new one, and `ptr_live`
+  and a second `mem_free` stay exact. An address at its last generation
+  is not given out again.
 - The repository: build script (it builds Limba first, in the same
   variant, and links every program with its library), licence, style.

@@ -758,53 +758,54 @@ op_CONVX:
     NEXT;
 
 op_LD1:
-    RA = *(const uint8_t *)(uintptr_t)(RB + MERI_W_C(w)) & 1;
+    RA = *(const uint8_t *)(uintptr_t)MERI_ADDR(RB + MERI_W_C(w)) & 1;
     NEXT;
 op_LD8:
-    RA = (uint64_t)(int64_t)*(const int8_t *)(uintptr_t)(RB + MERI_W_C(w));
+    RA = (uint64_t)(int64_t)*(const int8_t *)(uintptr_t)MERI_ADDR(RB +
+                                                                  MERI_W_C(w));
     NEXT;
 op_LD16: {
     int16_t v;
-    memcpy(&v, (const void *)(uintptr_t)(RB + MERI_W_C(w)), sizeof(v));
+    memcpy(&v, (const void *)(uintptr_t)MERI_ADDR(RB + MERI_W_C(w)), sizeof(v));
     RA = (uint64_t)(int64_t)v;
     NEXT;
 }
 op_LD32: {
     int32_t v;
-    memcpy(&v, (const void *)(uintptr_t)(RB + MERI_W_C(w)), sizeof(v));
+    memcpy(&v, (const void *)(uintptr_t)MERI_ADDR(RB + MERI_W_C(w)), sizeof(v));
     RA = (uint64_t)(int64_t)v;
     NEXT;
 }
 op_LDF32: {
     uint32_t v;
-    memcpy(&v, (const void *)(uintptr_t)(RB + MERI_W_C(w)), sizeof(v));
+    memcpy(&v, (const void *)(uintptr_t)MERI_ADDR(RB + MERI_W_C(w)), sizeof(v));
     RA = v;
     NEXT;
 }
 op_LD64: {
     uint64_t v;
-    memcpy(&v, (const void *)(uintptr_t)(RB + MERI_W_C(w)), sizeof(v));
+    memcpy(&v, (const void *)(uintptr_t)MERI_ADDR(RB + MERI_W_C(w)), sizeof(v));
     RA = v;
     NEXT;
 }
 op_ST8: {
     uint8_t v = (uint8_t)RA;
-    memcpy((void *)(uintptr_t)(RB + MERI_W_C(w)), &v, sizeof(v));
+    memcpy((void *)(uintptr_t)MERI_ADDR(RB + MERI_W_C(w)), &v, sizeof(v));
     NEXT;
 }
 op_ST16: {
     uint16_t v = (uint16_t)RA;
-    memcpy((void *)(uintptr_t)(RB + MERI_W_C(w)), &v, sizeof(v));
+    memcpy((void *)(uintptr_t)MERI_ADDR(RB + MERI_W_C(w)), &v, sizeof(v));
     NEXT;
 }
 op_ST32: {
     uint32_t v = (uint32_t)RA;
-    memcpy((void *)(uintptr_t)(RB + MERI_W_C(w)), &v, sizeof(v));
+    memcpy((void *)(uintptr_t)MERI_ADDR(RB + MERI_W_C(w)), &v, sizeof(v));
     NEXT;
 }
 op_ST64: {
     uint64_t v = RA;
-    memcpy((void *)(uintptr_t)(RB + MERI_W_C(w)), &v, sizeof(v));
+    memcpy((void *)(uintptr_t)MERI_ADDR(RB + MERI_W_C(w)), &v, sizeof(v));
     NEXT;
 }
 op_ADDR:
@@ -821,10 +822,11 @@ op_FADDR:
     RA = (uint64_t)(uintptr_t)&p->fns[MERI_W_BX(w)];
     NEXT;
 op_MEMCPY:
-    memmove((void *)(uintptr_t)RA, (const void *)(uintptr_t)RB, (size_t)RC);
+    memmove((void *)(uintptr_t)MERI_ADDR(RA),
+            (const void *)(uintptr_t)MERI_ADDR(RB), (size_t)RC);
     NEXT;
 op_MEMSET:
-    memset((void *)(uintptr_t)RA, (int)(uint8_t)RB, (size_t)RC);
+    memset((void *)(uintptr_t)MERI_ADDR(RA), (int)(uint8_t)RB, (size_t)RC);
     NEXT;
 op_RC: {
     int64_t n = (int64_t)RB;
@@ -844,13 +846,13 @@ op_SRELEASE:
     NEXT;
 op_LDS: {
     uint64_t v;
-    memcpy(&v, (const void *)(uintptr_t)(RB + MERI_W_C(w)), sizeof(v));
+    memcpy(&v, (const void *)(uintptr_t)MERI_ADDR(RB + MERI_W_C(w)), sizeof(v));
     meri_str_retain(v);
     RA = v;
     NEXT;
 }
 op_STS: {
-    void *q = (void *)(uintptr_t)(RB + MERI_W_C(w));
+    void *q = (void *)(uintptr_t)MERI_ADDR(RB + MERI_W_C(w));
     uint64_t v = RA, old;
     memcpy(&old, q, sizeof(old));
     meri_str_retain(v);
@@ -993,6 +995,7 @@ void meri_run(const meri_program *p, const char *entry, const meri_env *env,
     size_t nslotmem;
     size_t i;
 
+    s.heap.tagged = p->m->memory == LIMBA_MEM_STRICT;
     s.budget = env->max_memory ? env->max_memory : meri_default_memory();
     nslotmem = (size_t)(s.budget < SLOT_MAX - SLOT_SLACK ? s.budget + SLOT_SLACK
                                                          : SLOT_MAX);

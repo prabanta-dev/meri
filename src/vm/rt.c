@@ -140,7 +140,7 @@ void meri_state_rc(meri_state *s, uint64_t p, limba_id t, uint64_t n, int d)
     uint64_t size = s->p->m->types[t].size, i;
 
     for (i = 0; i < n; i++)
-        rc_walk(s, (uintptr_t)(p + i * size), t, d);
+        rc_walk(s, (uintptr_t)MERI_ADDR(p + i * size), t, d);
 }
 
 void meri_state_free_strs(meri_state *s)
@@ -234,7 +234,7 @@ static meri_str *line(meri_state *st, FILE *in, bool *ok)
 /* store the bits of type t at p, as the IR's store */
 static void put(uint64_t p, limba_id t, uint64_t v)
 {
-    void *q = (void *)(uintptr_t)p;
+    void *q = (void *)(uintptr_t)MERI_ADDR(p);
 
     if (t == LIMBA_T_F32) {
         uint32_t x = (uint32_t)v;
@@ -362,7 +362,7 @@ static int console(meri_state *s, uint32_t id, uint64_t *a)
             /* as store str: the line's reference goes to memory, the old
                value is released */
             uint64_t old;
-            memcpy(&old, (const void *)(uintptr_t)a[0], sizeof(old));
+            memcpy(&old, (const void *)(uintptr_t)MERI_ADDR(a[0]), sizeof(old));
             put(a[0], LIMBA_T_STR, meri_str_value(x));
             meri_state_release(s, old);
         }
@@ -506,8 +506,6 @@ bool meri_rt_call(meri_state *s, uint32_t id, uint64_t *a)
 
     switch (id) {
     case LIMBA_RT_MEM_ALLOC: {
-        /* a freed block is never given back in the first cut: it stays
-           counted */
         uint64_t n = a[0] ? a[0] : 1;
         if ((int64_t)a[0] < 0 || !meri_state_take(s, n))
             return meri_rt_trap(s, LIMBA_TRAP_NOMEM);
@@ -518,9 +516,13 @@ bool meri_rt_call(meri_state *s, uint32_t id, uint64_t *a)
         }
         return true;
     }
-    case LIMBA_RT_MEM_FREE:
-        return meri_heap_free(&s->heap, a[0]) ||
-               meri_rt_trap(s, LIMBA_TRAP_INVALID_FREE);
+    case LIMBA_RT_MEM_FREE: {
+        uint64_t size;
+        if (!meri_heap_free(&s->heap, a[0], &size))
+            return meri_rt_trap(s, LIMBA_TRAP_INVALID_FREE);
+        meri_state_give(s, size);
+        return true;
+    }
     case LIMBA_RT_PTR_LIVE:
         a[0] = meri_heap_live(&s->heap, a[0]);
         return true;

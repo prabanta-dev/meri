@@ -4,9 +4,10 @@
  * vm.h - the virtual machine of Meri: a module of the IR compiled to
  * bytecode (meri_compile), and its execution (meri_run).
  *
- * The strings count their references (progetto_ir.md § 11c). First cut
- * (job/plans/primo_motore.md): the memory of mem_alloc is never reused,
- * at most 256 registers a function.
+ * The strings count their references (progetto_ir.md § 11c); a block of
+ * mem_alloc goes back to malloc when freed, its pointers tagged with its
+ * generation (heap.h). First cut (job/plans/primo_motore.md): at most 256
+ * registers a function.
  */
 #ifndef MERI_VM_H
 #define MERI_VM_H
