@@ -29,6 +29,10 @@ static void usage(FILE *out)
           "Options (before the input)\n"
           "  --summary  print a summary of the module instead of running it\n"
           "  --disasm   print the bytecode instead of running it\n"
+          "  --max-memory=N[K|M|G]\n"
+          "             the memory the program may use (blocks, strings,\n"
+          "             globals, slots); past it, \"out of memory\". By\n"
+          "             default half of the physical memory\n"
           "  --version  print the version and exit\n"
           "  --help     print this text and exit\n",
           out);
@@ -68,10 +72,35 @@ static uint8_t *read_file(const char *path, size_t *len)
     return buf;
 }
 
-/* how the run ended, on standard error; the exit status */
+/* a size with an optional K, M or G (powers of 1024); false if it is not
+   one, 0, or past 64 bits */
+static bool parse_size(const char *s, uint64_t *out)
+{
+    char *end;
+    unsigned long long v;
+    unsigned shift = 0;
+
+    if (*s < '0' || *s > '9')
+        return false;
+    errno = 0;
+    v = strtoull(s, &end, 10);
+    if (errno || end == s)
+        return false;
+    if (*end == 'K' || *end == 'M' || *end == 'G')
+        shift = *end == 'K' ? 10 : *end == 'M' ? 20 : 30, end++;
+    if (*end || !v || v > (UINT64_MAX >> shift))
+        return false;
+    *out = (uint64_t)v << shift;
+    return true;
+}
+
+/* how the run ended, on standard error; the exit status. A trap of
+   traps.def is worded by the module: its language as the prefix, its text
+   or that of traps.def; everything else is Meri's own */
 static int report(const limba_module *m, const meri_result *r)
 {
-    const char *what = NULL;
+    const char *what = NULL, *prefix = "meri";
+    size_t wn = 0, pn = 4;
 
     switch (r->status) {
     case MERI_OK:
@@ -79,7 +108,9 @@ static int report(const limba_module *m, const meri_result *r)
     case MERI_HALT:
         return (int)r->code;
     case MERI_TRAP:
-        what = limba_trap_text(r->code);
+        what = limba_trap_message(m, r->code, &wn);
+        if (what && m->language != LIMBA_NONE)
+            prefix = limba_str(m, m->language, &pn);
         break;
     case MERI_UNREACHABLE:
         what = "unreachable executed";
@@ -94,8 +125,10 @@ static int report(const limba_module *m, const meri_result *r)
         what = "no function main without parameters";
         break;
     }
+    if (what && !wn)
+        wn = strlen(what);
     if (what)
-        fprintf(stderr, "meri: %s", what);
+        fprintf(stderr, "%.*s: %.*s", (int)pn, prefix, (int)wn, what);
     else
         fprintf(stderr, "meri: run-time error %lld", (long long)r->code);
     if (r->pos && r->pos <= m->npos) {
@@ -113,6 +146,7 @@ int main(int argc, char **argv)
 {
     const char *input = NULL;
     bool summary = false, disasm = false;
+    uint64_t max_memory = 0;
     limba_module *m;
     limba_diag d;
     meri_diag md;
@@ -136,6 +170,11 @@ int main(int argc, char **argv)
             summary = true;
         } else if (!strcmp(a, "--disasm")) {
             disasm = true;
+        } else if (!strncmp(a, "--max-memory=", 13)) {
+            if (!parse_size(a + 13, &max_memory)) {
+                fprintf(stderr, "meri: --max-memory: not a size: %s\n", a + 13);
+                return 2;
+            }
         } else if (a[0] == '-' && a[1]) {
             fprintf(stderr, "meri: unknown option: %s\n", a);
             usage(stderr);
@@ -183,7 +222,7 @@ int main(int argc, char **argv)
         return 0;
     }
 
-    env = (meri_env){argc - i, argv + i, stdin, stdout};
+    env = (meri_env){argc - i, argv + i, stdin, stdout, max_memory};
     meri_run(p, "main", &env, &r);
     status = fflush(stdout) || ferror(stdout) ? -1 : 0;
     if (status) {

@@ -35,9 +35,12 @@ yet.
     meri --disasm program.lir        # prints its bytecode
     meri --summary program.lir       # prints what the module holds
 
-A run-time error stops the program with a message on the standard error,
-such as `meri: index out of range at program.luxia:12:5`, and exit status
-1; `halt(code)` exits with `code`.
+A run-time error stops the program with a message on the standard error
+and exit status 1; `halt(code)` exits with `code`. The language of the
+module words its errors, `luxia: index out of range at program.luxia:12:5`;
+Meri's own errors, such as a module it refuses, begin with `meri:`. A
+program has the memory `--max-memory` gives it (by default half of the
+physical memory): past it, "out of memory", never a crash.
 
 ## The plan
 

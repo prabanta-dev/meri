@@ -27,10 +27,10 @@ typedef struct {
     uint32_t nk;
     uint32_t nregs; /* the window: registers, scratch, outgoing arguments */
     uint32_t nparams;
-    uint32_t *slot_off; /* offset of each slot in the frame's slot area */
+    uint64_t *slot_off; /* offset of each slot in the frame's slot area */
     uint32_t nslots;
-    uint32_t slot_size;  /* bytes of the slot area */
-    uint32_t slot_align; /* its alignment */
+    uint64_t slot_size;  /* bytes of the slot area */
+    uint64_t slot_align; /* its alignment */
     limba_id type;       /* the function type in the module */
 } meri_fn;
 
@@ -77,9 +77,16 @@ typedef struct {
 typedef struct {
     int argc; /* the arguments of the program, without its name */
     char **argv;
-    FILE *in;  /* read_line, input_line */
+    FILE *in;  /* read_line */
     FILE *out; /* everything the program writes */
+    /* the memory the program may use: blocks of mem_alloc, strings,
+       globals and the slots of the calls alive; past it, the trap NOMEM,
+       never a crash. 0 for meri_default_memory() */
+    uint64_t max_memory;
 } meri_env;
+
+/* the budget of a run by default: half of the physical memory */
+uint64_t meri_default_memory(void);
 
 /* run the function called entry (no parameters, no result used) */
 void meri_run(const meri_program *p, const char *entry, const meri_env *env,

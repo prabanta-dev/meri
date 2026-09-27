@@ -22,7 +22,15 @@ typedef struct {
     int64_t code;    /* its trap or halt code */
     meri_str **strs; /* every string made while running, freed at the end */
     size_t nstrs, capstrs;
+    /* the memory of the program (blocks of mem_alloc, strings, globals,
+       the slots of the calls alive) against its budget: past it, NOMEM */
+    uint64_t used, budget;
 } meri_state;
+
+/* n bytes more of the program's memory; false, and nothing counted, if
+   they do not fit in its budget */
+bool meri_state_take(meri_state *s, uint64_t n);
+void meri_state_give(meri_state *s, uint64_t n);
 
 /* a string of the run, n bytes from p (p may be NULL for 0); NULL when
    memory is exhausted */
@@ -37,13 +45,5 @@ bool meri_rt_call(meri_state *s, uint32_t id, uint64_t *a);
 
 /* stop the run with the trap code: always false */
 bool meri_rt_trap(meri_state *s, int64_t code);
-
-/* val (luxia-0.md § 9.4): the number a string holds */
-/* an integer: its magnitude and sign; false for no integer, or one past
-   64 bits */
-bool meri_val_int(const meri_str *s, uint64_t *mag, bool *neg);
-/* a real rounded once to f64 (or f32), as the bits of its register; false
-   for no number, or a finite one beyond the type */
-bool meri_val_real(const meri_str *s, bool f32, uint64_t *bits);
 
 #endif

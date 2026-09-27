@@ -147,7 +147,8 @@ static void one(const char *path)
     if (!o || !in) {
         CHECK(false, "%s: no stream", path);
     } else {
-        env = (meri_env){0, NULL, in, o};
+        /* 64 MiB, as the tests of Limba: the cases of NOMEM stay small */
+        env = (meri_env){0, NULL, in, o, (uint64_t)64 << 20};
         meri_run(p, "main", &env, &r);
         fclose(o);
         o = NULL;

@@ -12,5 +12,10 @@
   freed blocks are not reused, at most 256 registers a function.
 - `test_vm` runs the cases of `tests/vm` and those of the reference
   interpreter; `fuzz_meri` is the fuzzing target of the compiler.
+- IR version 4: a trap is worded by the module (its language as the
+  prefix, its texts or those of `traps.def`), `meri:` for Meri's own
+  errors; the numbers of `val` are read by Limba's `limba/val.h`; a run
+  has a memory budget (`--max-memory`), blocks, strings, globals and slots
+  counted against it, "out of memory" past it.
 - The repository: build script (it builds Limba first, in the same
   variant, and links every program with its library), licence, style.

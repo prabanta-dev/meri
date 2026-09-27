@@ -20,11 +20,9 @@ typedef struct {
     size_t ndead, capdead;
 } meri_heap;
 
-/* the largest block mem_alloc gives, as lir_run: 1 GiB */
-#define MERI_HEAP_MAX ((uint64_t)1 << 30)
-
-/* a zeroed block of n bytes (1 for 0); 0 when n is negative, too large,
-   or memory is exhausted: the trap NOMEM */
+/* a zeroed block of n bytes (1 for 0); 0 when n is negative, past the
+   address space, or memory is exhausted: the trap NOMEM (the budget of the
+   program is counted by the caller) */
 uint64_t meri_heap_alloc(meri_heap *h, uint64_t n);
 /* false if p (not 0) is not a block alive: the trap INVALID_FREE */
 bool meri_heap_free(meri_heap *h, uint64_t p);

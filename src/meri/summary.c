@@ -32,7 +32,10 @@ void meri_summary(const limba_module *m, FILE *out)
 
     fputs("module ", out);
     put_name(m, m->name, out);
-    fprintf(out, "\nmemory %s\n", m->memory == LIMBA_MEM_FB ? "fb" : "strict");
+    fprintf(out, "\nmemory %s\nlanguage ",
+            m->memory == LIMBA_MEM_FB ? "fb" : "strict");
+    put_name(m, m->language, out);
+    fprintf(out, ", messages %" PRIu32 "\n", m->nmessages);
     fprintf(out,
             "strings %" PRIu32 ", types %" PRIu32 ", globals %" PRIu32
             ", externs %" PRIu32 ", functions %" PRIu32 ", positions %" PRIu32

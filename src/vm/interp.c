@@ -22,6 +22,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
+#include <unistd.h>
 
 const meri_op_info meri_ops[MERI_OP_COUNT] = {
 #define MERI_OP(name, text, format) {text, format},
@@ -29,10 +30,13 @@ const meri_op_info meri_ops[MERI_OP_COUNT] = {
 #undef MERI_OP
 };
 
-/* the stacks: 16 Mi registers (128 MiB), 256 MiB of slots, 1 Mi frames */
+/* the stacks: 16 Mi registers (128 MiB) and 1 Mi frames; the slots take
+   what the budget of the run allows (they count against it), with room
+   for the alignment of the frames, reserved up to 1 TiB */
 #define REGS ((size_t)1 << 24)
-#define SLOTS ((size_t)1 << 28)
 #define FRAMES ((size_t)1 << 20)
+#define SLOT_SLACK ((uint64_t)1 << 28)
+#define SLOT_MAX ((uint64_t)1 << 40)
 
 typedef struct {
     const uint32_t *pc; /* where the caller goes on */
@@ -312,7 +316,7 @@ static void **globals_new(meri_state *s)
         size_t size = ty->size ? ty->size : 1;
         void *p;
         size = (size + align - 1) / align * align;
-        if (posix_memalign(&p, align, size)) {
+        if (!meri_state_take(s, size) || posix_memalign(&p, align, size)) {
             while (i-- > 0)
                 free(g[i]);
             free(g);
@@ -360,13 +364,26 @@ static limba_id find_entry(const limba_module *m, const char *entry)
 
 /* ---- the loop ---- */
 
-static uint8_t *align_up(uint8_t *p, uint32_t a)
+uint64_t meri_default_memory(void)
 {
-    return (uint8_t *)(((uintptr_t)p + a - 1) & ~(uintptr_t)(a - 1));
+    long pages = sysconf(_SC_PHYS_PAGES), size = sysconf(_SC_PAGESIZE);
+
+    if (pages <= 0 || size <= 0)
+        return (uint64_t)1 << 30;
+    return (uint64_t)pages * (uint64_t)size / 2;
+}
+
+/* p aligned up to a (a power of two); NULL past end */
+static uint8_t *align_up(uint8_t *p, uint64_t a, const uint8_t *end)
+{
+    uintptr_t q = ((uintptr_t)p + (uintptr_t)a - 1) & ~(uintptr_t)(a - 1);
+
+    return q < (uintptr_t)p || q > (uintptr_t)end ? NULL : (uint8_t *)q;
 }
 
 static void run(meri_state *s, const meri_fn *entry, void **globals,
-                uint64_t *regs, uint8_t *slotmem, frame *frames, meri_result *r)
+                uint64_t *regs, uint8_t *slotmem, size_t nslotmem,
+                frame *frames, meri_result *r)
 {
     static const void *const disp[MERI_OP_COUNT] = {
 #define MERI_OP(name, text, format) &&op_##name,
@@ -375,7 +392,7 @@ static void run(meri_state *s, const meri_fn *entry, void **globals,
     };
     const meri_program *p = s->p;
     uint64_t *const regs_end = regs + REGS;
-    uint8_t *const slots_end = slotmem + SLOTS;
+    uint8_t *const slots_end = slotmem + nslotmem;
     const meri_fn *fn = entry, *callee;
     const uint32_t *pc, *ip;
     const uint64_t *k;
@@ -386,12 +403,15 @@ static void run(meri_state *s, const meri_fn *entry, void **globals,
     uint64_t result;
     uint32_t w, x;
 
-    if (fn->nregs > REGS || fn->slot_size > SLOTS) {
-        code = LIMBA_TRAP_STACK;
-        ip = fn->code;
+    ip = fn->code;
+    code = LIMBA_TRAP_NOMEM;
+    if (!meri_state_take(s, fn->slot_size))
         goto trap;
-    }
-    slots = align_up(slotmem, fn->slot_align);
+    slots = align_up(slotmem, fn->slot_align, slots_end);
+    code = LIMBA_TRAP_STACK;
+    if (fn->nregs > REGS || !slots ||
+        (uint64_t)(slots_end - slots) < fn->slot_size)
+        goto trap;
     memset(slots, 0, fn->slot_size);
     slot_top = slots + fn->slot_size;
     pc = fn->code;
@@ -833,10 +853,15 @@ op_CALLI: {
 }
 call: {
     uint64_t *nb = base + MERI_W_A(w);
-    uint8_t *ns = align_up(slot_top, callee->slot_align);
-    if (depth + 1 >= FRAMES || (size_t)(regs_end - nb) < callee->nregs ||
-        (size_t)(slots_end - ns) < callee->slot_size)
+    uint8_t *ns = align_up(slot_top, callee->slot_align, slots_end);
+    /* the slots are memory of the program: past the budget, NOMEM */
+    if (!meri_state_take(s, callee->slot_size))
+        TRAP(LIMBA_TRAP_NOMEM);
+    if (depth + 1 >= FRAMES || (size_t)(regs_end - nb) < callee->nregs || !ns ||
+        (uint64_t)(slots_end - ns) < callee->slot_size) {
+        meri_state_give(s, callee->slot_size);
         TRAP(LIMBA_TRAP_STACK);
+    }
     frames[depth++] = (frame){pc, fn, base, slots, slot_top};
     memset(ns, 0, callee->slot_size);
     fn = callee;
@@ -864,6 +889,7 @@ op_RET:
 op_RET0:
     result = 0;
 ret:
+    meri_state_give(s, fn->slot_size);
     if (!depth) {
         r->status = MERI_OK;
         r->ret = result;
@@ -931,7 +957,12 @@ void meri_run(const meri_program *p, const char *entry, const meri_env *env,
     uint64_t *regs = NULL;
     uint8_t *slotmem = NULL;
     frame *frames = NULL;
+    size_t nslotmem;
     uint32_t i;
+
+    s.budget = env->max_memory ? env->max_memory : meri_default_memory();
+    nslotmem = (size_t)(s.budget < SLOT_MAX - SLOT_SLACK ? s.budget + SLOT_SLACK
+                                                         : SLOT_MAX);
 
     memset(r, 0, sizeof(*r));
     if (fid == LIMBA_NONE || p->fns[fid].nparams != 0) {
@@ -940,18 +971,18 @@ void meri_run(const meri_program *p, const char *entry, const meri_env *env,
     }
     globals = globals_new(&s);
     regs = reserve(REGS * sizeof(uint64_t));
-    slotmem = reserve(SLOTS);
+    slotmem = reserve(nslotmem);
     frames = reserve(FRAMES * sizeof(frame));
     if (!globals || !regs || !slotmem || !frames) {
         r->status = MERI_TRAP;
         r->code = LIMBA_TRAP_NOMEM;
     } else {
-        run(&s, &p->fns[fid], globals, regs, slotmem, frames, r);
+        run(&s, &p->fns[fid], globals, regs, slotmem, nslotmem, frames, r);
     }
     if (regs)
         munmap(regs, REGS * sizeof(uint64_t));
     if (slotmem)
-        munmap(slotmem, SLOTS);
+        munmap(slotmem, nslotmem);
     if (frames)
         munmap(frames, FRAMES * sizeof(frame));
     if (globals) {

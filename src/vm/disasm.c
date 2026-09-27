@@ -66,7 +66,7 @@ void meri_disasm(const meri_program *p, FILE *out)
 
         fprintf(out,
                 "func %" PRIu32 " %.*s: params %" PRIu32 ", registers %" PRIu32
-                ", slots %" PRIu32 " bytes, words %" PRIu32 "\n",
+                ", slots %" PRIu64 " bytes, words %" PRIu32 "\n",
                 i, (int)n, name, fn->nparams, fn->nregs, fn->slot_size,
                 fn->ncode);
         for (at = 0; at < fn->ncode;) {

@@ -6,6 +6,7 @@
  */
 #include "vm/heap.h"
 
+#include <stddef.h>
 #include <stdlib.h>
 
 static size_t slot_of(uintptr_t p, size_t cap)
@@ -58,7 +59,7 @@ uint64_t meri_heap_alloc(meri_heap *h, uint64_t n)
     void *p;
     size_t k;
 
-    if ((int64_t)n < 0 || n > MERI_HEAP_MAX || !grow(h))
+    if ((int64_t)n < 0 || n > PTRDIFF_MAX || !grow(h))
         return 0;
     p = calloc(n ? (size_t)n : 1, 1);
     if (!p)

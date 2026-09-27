@@ -863,11 +863,11 @@ static void inst(L *l, uint32_t id, uint32_t next)
 static void layout_slots(L *l, meri_fn *fn)
 {
     const limba_func *f = l->f;
-    uint64_t off = 0;
-    uint32_t s, align = 16;
+    uint64_t off = 0, align = 16;
+    uint32_t s;
 
     fn->nslots = f->nslots;
-    fn->slot_off = calloc((size_t)f->nslots + 1, sizeof(uint32_t));
+    fn->slot_off = calloc((size_t)f->nslots + 1, sizeof(uint64_t));
     if (!fn->slot_off) {
         fail(l, "out of memory");
         return;
@@ -879,17 +879,14 @@ static void layout_slots(L *l, meri_fn *fn)
             fail(l, "slot %" PRIu32 " has an alignment of %" PRIu64, s, a);
             return;
         }
+        /* the sizes are 32 bits, the offsets stay far below 2^63 */
         off = (off + a - 1) & ~(a - 1);
-        fn->slot_off[s] = (uint32_t)off;
+        fn->slot_off[s] = off;
         off += size;
         if (a > align)
-            align = (uint32_t)a;
-        if (off > (1u << 30)) {
-            fail(l, "slots of more than 1 GiB");
-            return;
-        }
+            align = a;
     }
-    fn->slot_size = (uint32_t)((off + 15) & ~(uint64_t)15);
+    fn->slot_size = (off + 15) & ~(uint64_t)15;
     fn->slot_align = align;
 }
 

@@ -3,12 +3,14 @@
 /*
  * rt.c - the functions of runtime.def. Each takes its arguments in a[0..n)
  * as the IR gives them (canonical integers, the bits of a float, a str
- * value) and leaves its result in a[0]. The reals are written by the
- * functions of Limba (limba/fmt.h), never by a copy of them.
+ * value) and leaves its result in a[0]. The reals are written, and the
+ * numbers of val read, by the functions of Limba (limba/fmt.h,
+ * limba/val.h), never by a copy of them.
  */
 #include "vm/rt.h"
 
 #include "limba/fmt.h"
+#include "limba/val.h"
 
 #include <inttypes.h>
 #include <math.h>
@@ -21,6 +23,19 @@ bool meri_rt_trap(meri_state *s, int64_t code)
     s->status = MERI_TRAP;
     s->code = code;
     return false;
+}
+
+bool meri_state_take(meri_state *s, uint64_t n)
+{
+    if (n > s->budget || s->used > s->budget - n)
+        return false;
+    s->used += n;
+    return true;
+}
+
+void meri_state_give(meri_state *s, uint64_t n)
+{
+    s->used -= n < s->used ? n : s->used;
 }
 
 meri_str *meri_state_alloc(meri_state *s, size_t n)
@@ -37,9 +52,15 @@ meri_str *meri_state_alloc(meri_state *s, size_t n)
         s->strs = strs;
         s->capstrs = cap;
     }
+    /* a string is never freed in the first cut: it stays counted */
+    if (n > SIZE_MAX - sizeof(meri_str) - 1 ||
+        !meri_state_take(s, sizeof(meri_str) + n + 1))
+        return NULL;
     x = meri_str_alloc(n);
     if (x)
         s->strs[s->nstrs++] = x;
+    else
+        meri_state_give(s, sizeof(meri_str) + n + 1);
     return x;
 }
 
@@ -188,7 +209,8 @@ static bool power(meri_state *s, uint32_t id, uint64_t *a)
 static bool to_int(uint32_t id, uint64_t *a)
 {
     uint64_t mag;
-    bool neg, ok = meri_val_int(meri_str_of(a[0]), &mag, &neg);
+    const meri_str *x = meri_str_of(a[0]);
+    bool neg, ok = limba_val_int(x->data, x->len, &mag, &neg);
     int64_t v = (int64_t)(neg ? 0 - mag : mag);
 
     if (id == LIMBA_RT_STR_TO_I64)
@@ -259,14 +281,6 @@ static int console(meri_state *s, uint32_t id, uint64_t *a)
         for (; width > chars; width--)
             out(s, " ", 1);
         out(s, x->data, x->len);
-        return DONE;
-    }
-    case LIMBA_RT_INPUT_LINE: {
-        bool ok;
-        meri_str *x = line(s, s->env->in, &ok);
-        if (!x)
-            return nomem(s);
-        a[0] = meri_str_value(x);
         return DONE;
     }
     case LIMBA_RT_READ_LINE: { /* (p) -> i1: the line at p, "" at the end */
@@ -353,7 +367,8 @@ static int strings(meri_state *s, uint32_t id, uint64_t *a)
     case LIMBA_RT_STR_TO_F32: {
         bool f32 = id == LIMBA_RT_STR_TO_F32;
         uint64_t v;
-        bool ok = meri_val_real(meri_str_of(a[0]), f32, &v);
+        const meri_str *x = meri_str_of(a[0]);
+        bool ok = limba_val_real(x->data, x->len, f32, &v);
         if (ok)
             put(a[1], f32 ? LIMBA_T_F32 : LIMBA_T_F64, v);
         a[0] = ok;
@@ -413,9 +428,19 @@ bool meri_rt_call(meri_state *s, uint32_t id, uint64_t *a)
     int r;
 
     switch (id) {
-    case LIMBA_RT_MEM_ALLOC:
+    case LIMBA_RT_MEM_ALLOC: {
+        /* a freed block is never given back in the first cut: it stays
+           counted */
+        uint64_t n = a[0] ? a[0] : 1;
+        if ((int64_t)a[0] < 0 || !meri_state_take(s, n))
+            return meri_rt_trap(s, LIMBA_TRAP_NOMEM);
         a[0] = meri_heap_alloc(&s->heap, a[0]);
-        return a[0] || meri_rt_trap(s, LIMBA_TRAP_NOMEM);
+        if (!a[0]) {
+            meri_state_give(s, n);
+            return meri_rt_trap(s, LIMBA_TRAP_NOMEM);
+        }
+        return true;
+    }
     case LIMBA_RT_MEM_FREE:
         return meri_heap_free(&s->heap, a[0]) ||
                meri_rt_trap(s, LIMBA_TRAP_INVALID_FREE);
