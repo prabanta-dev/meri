@@ -18,13 +18,26 @@ written in Free Pascal, not its code.
 
 ## ⚠️ Read this first
 
-**This is a project in development, not a usable program.** Nothing is
-written yet but the build script.
+**This is a project in development, not a usable program.** `meri` reads
+a module of the IR, compiles it to bytecode and runs it on a first
+virtual machine, written for correctness before speed: no JIT and no AOT
+yet.
 
 | | |
 |---|---|
 | **Stage** | Just started. The bytecode, its file format and the command line **change without notice**. |
 | **Platform** | Developed and tested on Linux x86-64 only (Debian 13, GCC). |
+
+## Using it
+
+    limba -O1 program.luxia          # writes program.lir
+    meri program.lir [arguments]     # runs it
+    meri --disasm program.lir        # prints its bytecode
+    meri --summary program.lir       # prints what the module holds
+
+A run-time error stops the program with a message on the standard error,
+such as `meri: index out of range at program.luxia:12:5`, and exit status
+1; `halt(code)` exits with `code`.
 
 ## The plan
 

@@ -1,0 +1,161 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later
+   Copyright (C) 2026 Maurizio Cammalleri */
+/*
+ * ops.def - the instructions of the Meri VM.
+ *
+ *   MERI_OP(name, text, format)
+ *
+ * name    the enumerator is MERI_OP_<name>
+ * text    the spelling of the disassembly
+ * format  MERI_FMT_* in code.h: which fields the word uses, and whether a
+ *         second word follows
+ *
+ * A register is R[x] of the window of the running function; K[x] is the
+ * constant x of the function (64 bits). Integers are kept in their
+ * canonical form, sign-extended from their width (0 or 1 for i1); an f32
+ * is the 32 bits of its float, zero-extended (insieme_istruzioni.md § 2).
+ * The order is the numbering of the bytecode: add at the end.
+ */
+
+/* moves and constants */
+MERI_OP(MOVE, "move", MERI_FMT_AB)     /* R[A] = R[B] */
+MERI_OP(LOADI, "loadi", MERI_FMT_AsBx) /* R[A] = sBx */
+MERI_OP(LOADK, "loadk", MERI_FMT_ABx)  /* R[A] = K[Bx] */
+MERI_OP(LOADS, "loads", MERI_FMT_ABx)  /* R[A] = string constant Bx */
+
+/* integers of 64 bits (i64 and ptr) */
+MERI_OP(ADD, "add", MERI_FMT_ABC)
+MERI_OP(SUB, "sub", MERI_FMT_ABC)
+MERI_OP(MUL, "mul", MERI_FMT_ABC)
+MERI_OP(ADDOV, "add.ov", MERI_FMT_ABC) /* OVERFLOW on signed overflow */
+MERI_OP(SUBOV, "sub.ov", MERI_FMT_ABC)
+MERI_OP(MULOV, "mul.ov", MERI_FMT_ABC)
+MERI_OP(SDIV, "sdiv", MERI_FMT_ABC) /* DIVZERO for 0 and INT_MIN / -1 */
+MERI_OP(UDIV, "udiv", MERI_FMT_ABC)
+MERI_OP(SREM, "srem", MERI_FMT_ABC)
+MERI_OP(UREM, "urem", MERI_FMT_ABC)
+MERI_OP(NEG, "neg", MERI_FMT_AB)
+MERI_OP(SHL, "shl", MERI_FMT_ABC) /* the count modulo the width */
+MERI_OP(LSHR, "lshr", MERI_FMT_ABC)
+MERI_OP(ASHR, "ashr", MERI_FMT_ABC)
+
+/* the same on i32, the result sign-extended from 32 bits */
+MERI_OP(ADD32, "add32", MERI_FMT_ABC)
+MERI_OP(SUB32, "sub32", MERI_FMT_ABC)
+MERI_OP(MUL32, "mul32", MERI_FMT_ABC)
+MERI_OP(ADDOV32, "add.ov32", MERI_FMT_ABC)
+MERI_OP(SUBOV32, "sub.ov32", MERI_FMT_ABC)
+MERI_OP(MULOV32, "mul.ov32", MERI_FMT_ABC)
+MERI_OP(SDIV32, "sdiv32", MERI_FMT_ABC)
+MERI_OP(UDIV32, "udiv32", MERI_FMT_ABC)
+MERI_OP(SREM32, "srem32", MERI_FMT_ABC)
+MERI_OP(UREM32, "urem32", MERI_FMT_ABC)
+MERI_OP(NEG32, "neg32", MERI_FMT_AB)
+MERI_OP(SHL32, "shl32", MERI_FMT_ABC)
+MERI_OP(LSHR32, "lshr32", MERI_FMT_ABC)
+MERI_OP(ASHR32, "ashr32", MERI_FMT_ABC)
+
+/* an integer operation of i1, i8 or i16: X = the IR operation, the bits */
+MERI_OP(INTN, "intn", MERI_FMT_ABC_X)
+
+/* bits: the same for every width, on canonical values */
+MERI_OP(AND, "and", MERI_FMT_ABC)
+MERI_OP(OR, "or", MERI_FMT_ABC)
+MERI_OP(XOR, "xor", MERI_FMT_ABC)
+MERI_OP(NOT, "not", MERI_FMT_AB) /* not i1 (that is intn) */
+
+/* floats: f64, then f32 */
+MERI_OP(FADD, "fadd", MERI_FMT_ABC)
+MERI_OP(FSUB, "fsub", MERI_FMT_ABC)
+MERI_OP(FMUL, "fmul", MERI_FMT_ABC)
+MERI_OP(FDIV, "fdiv", MERI_FMT_ABC)
+MERI_OP(FNEG, "fneg", MERI_FMT_AB)
+MERI_OP(FMA, "fma", MERI_FMT_ABC_X) /* R[A] = R[B] * R[C] + R[X] */
+MERI_OP(FROUND, "fround", MERI_FMT_AB)
+MERI_OP(FROUNDA, "fround.away", MERI_FMT_AB)
+MERI_OP(FADDF, "fadd.f32", MERI_FMT_ABC)
+MERI_OP(FSUBF, "fsub.f32", MERI_FMT_ABC)
+MERI_OP(FMULF, "fmul.f32", MERI_FMT_ABC)
+MERI_OP(FDIVF, "fdiv.f32", MERI_FMT_ABC)
+MERI_OP(FNEGF, "fneg.f32", MERI_FMT_AB)
+MERI_OP(FMAF, "fma.f32", MERI_FMT_ABC_X)
+MERI_OP(FROUNDF, "fround.f32", MERI_FMT_AB)
+MERI_OP(FROUNDAF, "fround.away.f32", MERI_FMT_AB)
+
+/* comparisons giving 0 or 1: signed and unsigned on canonical integers,
+   ordered on f64; every other one through CMPX (X = cc, 1 << 8 for f32) */
+MERI_OP(EQ, "eq", MERI_FMT_ABC)
+MERI_OP(NE, "ne", MERI_FMT_ABC)
+MERI_OP(LT, "lt", MERI_FMT_ABC)
+MERI_OP(LE, "le", MERI_FMT_ABC)
+MERI_OP(LTU, "ltu", MERI_FMT_ABC)
+MERI_OP(LEU, "leu", MERI_FMT_ABC)
+MERI_OP(FEQ, "feq", MERI_FMT_ABC)
+MERI_OP(FLT, "flt", MERI_FMT_ABC)
+MERI_OP(FLE, "fle", MERI_FMT_ABC)
+MERI_OP(CMPX, "cmpx", MERI_FMT_ABC_X)
+MERI_OP(SELECT, "select", MERI_FMT_ABC_X) /* R[A] = R[B] ? R[C] : R[X] */
+
+/* conversions */
+MERI_OP(SEXT8, "sext8", MERI_FMT_AB) /* from the low bits of R[B] */
+MERI_OP(SEXT16, "sext16", MERI_FMT_AB)
+MERI_OP(SEXT32, "sext32", MERI_FMT_AB)
+MERI_OP(ZEXT1, "zext1", MERI_FMT_AB)
+MERI_OP(ZEXT8, "zext8", MERI_FMT_AB)
+MERI_OP(ZEXT16, "zext16", MERI_FMT_AB)
+MERI_OP(ZEXT32, "zext32", MERI_FMT_AB)
+MERI_OP(I2D, "i2d", MERI_FMT_AB) /* signed 64 bits to f64 */
+MERI_OP(I2F, "i2f", MERI_FMT_AB) /* to f32 */
+MERI_OP(U2D, "u2d", MERI_FMT_AB) /* unsigned 64 bits */
+MERI_OP(U2F, "u2f", MERI_FMT_AB)
+MERI_OP(D2F, "d2f", MERI_FMT_AB) /* fptrunc */
+MERI_OP(F2D, "f2d", MERI_FMT_AB) /* fpext */
+/* any other conversion: X = the IR operation, from, to (types) */
+MERI_OP(CONVX, "convx", MERI_FMT_AB_X)
+
+/* memory: the address is R[B] + C */
+MERI_OP(LD1, "ld1", MERI_FMT_ABC)
+MERI_OP(LD8, "ld8", MERI_FMT_ABC)
+MERI_OP(LD16, "ld16", MERI_FMT_ABC)
+MERI_OP(LD32, "ld32", MERI_FMT_ABC)
+MERI_OP(LDF32, "ldf32", MERI_FMT_ABC) /* the 32 bits, zero-extended */
+MERI_OP(LD64, "ld64", MERI_FMT_ABC)
+MERI_OP(ST8, "st8", MERI_FMT_ABC) /* store R[A] at R[B] + C */
+MERI_OP(ST16, "st16", MERI_FMT_ABC)
+MERI_OP(ST32, "st32", MERI_FMT_ABC)
+MERI_OP(ST64, "st64", MERI_FMT_ABC)
+/* R[A] = R[B] + R[C] * K[X] + K[X + 1], modulo 2^64 */
+MERI_OP(ADDR, "addr", MERI_FMT_ABC_X)
+MERI_OP(SLOT, "slot", MERI_FMT_ABx)   /* address of slot Bx of the frame */
+MERI_OP(GADDR, "gaddr", MERI_FMT_ABx) /* address of global Bx */
+MERI_OP(FADDR, "faddr", MERI_FMT_ABx) /* the value of function Bx */
+MERI_OP(MEMCPY, "memcpy", MERI_FMT_ABC) /* dst R[A], src R[B], len R[C] */
+MERI_OP(MEMSET, "memset", MERI_FMT_ABC) /* byte: the low 8 bits of R[B] */
+/* retain and release: p R[A], n R[B], K[X] the size of the type; first
+   cut, no counts: RANGE for a negative n or an overflowing n * size */
+MERI_OP(RC, "rc", MERI_FMT_AB_X)
+
+/* calls: the arguments in R[A], R[A + 1]...; the result in R[A] */
+MERI_OP(CALL, "call", MERI_FMT_ABx)     /* function Bx */
+MERI_OP(CALLRT, "call.rt", MERI_FMT_ABx) /* runtime function Bx */
+MERI_OP(CALLI, "call.ind", MERI_FMT_AB_X) /* callee R[B], X its type */
+MERI_OP(CALLX, "call.ext", MERI_FMT_ABx) /* not supported: an error */
+MERI_OP(RET, "ret", MERI_FMT_A)
+MERI_OP(RET0, "ret0", MERI_FMT_NONE)
+
+/* control: a jump goes to the word after it plus sJ */
+MERI_OP(JMP, "jmp", MERI_FMT_sJ)
+/* test and jump: the next word is a JMP, taken when the condition is k
+   (the field C, or B for TEST), skipped otherwise */
+MERI_OP(TEST, "test", MERI_FMT_AkJ) /* R[A] != 0 */
+MERI_OP(JEQ, "jeq", MERI_FMT_ABkJ)
+MERI_OP(JLT, "jlt", MERI_FMT_ABkJ)
+MERI_OP(JLE, "jle", MERI_FMT_ABkJ)
+MERI_OP(JLTU, "jltu", MERI_FMT_ABkJ)
+MERI_OP(JLEU, "jleu", MERI_FMT_ABkJ)
+MERI_OP(JFEQ, "jfeq", MERI_FMT_ABkJ) /* ordered, f64 */
+MERI_OP(JFLT, "jflt", MERI_FMT_ABkJ)
+MERI_OP(JFLE, "jfle", MERI_FMT_ABkJ)
+MERI_OP(TRAP, "trap", MERI_FMT_ABx)   /* the code is K[Bx] */
+MERI_OP(CHECK, "check", MERI_FMT_ABx) /* the trap K[Bx] if R[A] is 0 */
+MERI_OP(UNREACH, "unreachable", MERI_FMT_NONE)

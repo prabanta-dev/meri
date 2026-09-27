@@ -1,0 +1,12 @@
+; trap: 11
+; at: 2:5
+; the smallest i8 divided by -1 overflows its width: DIVZERO, as INT_MIN
+pos 1 "t.luxia" 2 5
+func @main : fn() -> i64 {
+b0:
+  v0 = iconst i8 -128
+  v1 = iconst i8 -1
+  v2 = sdiv i8 v0, v1 !1
+  v3 = sext i64 v2
+  ret v3
+}

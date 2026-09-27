@@ -52,7 +52,9 @@ Output
   but release. Each src/<tool>/main.c becomes the program <tool> (meri,
   prabanta), with the other .c files of its directory; every other .c
   under src/ goes into libmeri.a. Each tests/*.c and tools/*.c becomes a
-  program too. Every program is linked with libmeri.a and liblimba.a.
+  program too. Every program is linked with libmeri.a and liblimba.a, and
+  knows where Limba is (MERI_LIMBA_DIR): test_vm runs the cases of its
+  reference interpreter too, LIMBA_DIR/tests/eval.
 
 Environment
   CC            the compiler, gcc by default
@@ -169,7 +171,7 @@ echo "LIMBA $LIMBA_DIR ($(git -C "$LIMBA_DIR" describe --always --dirty \
     2>/dev/null || echo unknown))"
 "$LIMBA_DIR/build.sh" "$VARIANT" build >/dev/null
 LIBLIMBA="$LIMBA_DIR/lib/$CPU-$OS-$VARIANT/liblimba.a"
-CFLAGS+=(-I"$LIMBA_DIR/include")
+CFLAGS+=(-I"$LIMBA_DIR/include" -DMERI_LIMBA_DIR="\"$LIMBA_DIR\"")
 
 mkdir -p "$OBJ" "$BIN"
 

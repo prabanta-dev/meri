@@ -1,0 +1,67 @@
+; output: abcdef
+; output: 6
+; output: -1
+; output: 1
+; output: 0
+; output: cde
+; output: ef
+; output: 
+; output: -42
+; output:     ab
+; output: àb
+; result: 0
+; the functions of strings, and 0 as the empty string
+func @main : fn() -> i64 {
+b0:
+  v0 = sconst str "abc"
+  v1 = sconst str "def"
+  v2 = call.rt str str_concat(v0, v1)
+  call.rt void print_str(v2)
+  call.rt void print_nl()
+  v3 = call.rt i64 str_len(v2)
+  call.rt void print_i64(v3)
+  call.rt void print_nl()
+  v4 = call.rt i32 str_cmp(v0, v1)
+  v5 = sext i64 v4
+  call.rt void print_i64(v5)
+  call.rt void print_nl()
+  v6 = call.rt i32 str_cmp(v2, v0)
+  v7 = sext i64 v6
+  call.rt void print_i64(v7)
+  call.rt void print_nl()
+  v8 = null str
+  v9 = call.rt i64 str_len(v8)
+  call.rt void print_i64(v9)
+  call.rt void print_nl()
+  v10 = iconst i64 2
+  v11 = iconst i64 3
+  v12 = call.rt str str_mid(v2, v10, v11)
+  call.rt void print_str(v12)
+  call.rt void print_nl()
+  v13 = iconst i64 4
+  v14 = iconst i64 99
+  v15 = call.rt str str_mid(v2, v13, v14)
+  call.rt void print_str(v15)
+  call.rt void print_nl()
+  v16 = iconst i64 -5
+  v17 = call.rt str str_mid(v8, v16, v14)
+  call.rt void print_str(v17)
+  call.rt void print_nl()
+  v18 = iconst i64 -42
+  v19 = call.rt str str_from_i64(v18)
+  call.rt void print_str(v19)
+  call.rt void print_nl()
+  v20 = sconst str "ab"
+  v21 = iconst i32 6
+  call.rt void print_str_w(v20, v21)
+  call.rt void print_nl()
+  v22 = iconst i32 224
+  v23 = call.rt str str_from_char(v22)
+  v24 = sconst str "b"
+  v25 = call.rt str str_concat(v23, v24)
+  v26 = iconst i32 1
+  call.rt void print_str_w(v25, v26)
+  call.rt void print_nl()
+  v27 = iconst i64 0
+  ret v27
+}

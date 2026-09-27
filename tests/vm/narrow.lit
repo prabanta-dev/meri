@@ -1,0 +1,78 @@
+; output: -128
+; output: 24464
+; output: 2
+; output: 127
+; output: 127
+; output: -1
+; output: 127
+; output: 0
+; output: 1
+; output: -2147483648
+; output: 2
+; result: 0
+; integers of 8, 16 and 1 bits (the INTN instruction) and of 32: they wrap
+; to their width, shift counts are taken modulo the width
+func @main : fn() -> i64 {
+b0:
+  v0 = iconst i8 127
+  v1 = iconst i8 1
+  v2 = add i8 v0, v1
+  v3 = sext i64 v2
+  call.rt void print_i64(v3)
+  call.rt void print_nl()
+  v4 = iconst i16 300
+  v5 = mul i16 v4, v4
+  v6 = sext i64 v5
+  call.rt void print_i64(v6)
+  call.rt void print_nl()
+  v7 = iconst i8 9
+  v8 = shl i8 v1, v7
+  v9 = sext i64 v8
+  call.rt void print_i64(v9)
+  call.rt void print_nl()
+  v10 = iconst i8 -1
+  v11 = lshr i8 v10, v1
+  v12 = sext i64 v11
+  call.rt void print_i64(v12)
+  call.rt void print_nl()
+  v13 = iconst i8 2
+  v14 = udiv i8 v10, v13
+  v15 = sext i64 v14
+  call.rt void print_i64(v15)
+  call.rt void print_nl()
+  v16 = iconst i16 -7
+  v17 = iconst i16 3
+  v18 = srem i16 v16, v17
+  v19 = sext i64 v18
+  call.rt void print_i64(v19)
+  call.rt void print_nl()
+  v20 = iconst i8 100
+  v21 = iconst i8 27
+  v22 = add.ov i8 v20, v21
+  v23 = sext i64 v22
+  call.rt void print_i64(v23)
+  call.rt void print_nl()
+  v24 = iconst i1 1
+  v25 = xor i1 v24, v24
+  v26 = zext i64 v25
+  call.rt void print_i64(v26)
+  call.rt void print_nl()
+  v27 = not i1 v25
+  v28 = zext i64 v27
+  call.rt void print_i64(v28)
+  call.rt void print_nl()
+  v29 = iconst i32 2147483647
+  v30 = iconst i32 1
+  v31 = add i32 v29, v30
+  v32 = sext i64 v31
+  call.rt void print_i64(v32)
+  call.rt void print_nl()
+  v33 = iconst i32 33
+  v34 = shl i32 v30, v33
+  v35 = lshr i32 v34, v30
+  v36 = sext i64 v34
+  call.rt void print_i64(v36)
+  call.rt void print_nl()
+  v37 = iconst i64 0
+  ret v37
+}
