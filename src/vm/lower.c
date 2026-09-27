@@ -10,6 +10,13 @@
  * its parameters are its registers 0, 1, ...; the result comes back in
  * the first of them.
  *
+ * A function that needs more (a register past 255, or outgoing arguments
+ * past it) is emitted wide: five low registers, after the parameters,
+ * are kept for it; an operand in a high register comes to one of the
+ * first four with MOVEW, a result goes back from the first, the fifth is
+ * the scratch register; its calls take the base of their arguments from
+ * a second word (CALLW, CALLRTW, CALLIW).
+ *
  * The copies of the arguments of a jump are done after the branch is
  * decided, on the way to their target: no block is added for a critical
  * edge. They are a parallel copy, ordered so that no register is written
@@ -43,7 +50,10 @@ typedef struct {
     bool failed;
     meri_alloc al;
     uint32_t scratch, outgoing, maxargs;
-    uint32_t cur; /* the position of the words being emitted */
+    bool wide;        /* registers past 255 (see the top) */
+    uint32_t temp;    /* wide: the first of the four low temporaries */
+    uint32_t pending; /* wide: the high register of the result, or 0 */
+    uint32_t cur;     /* the position of the words being emitted */
     uint32_t *code, *pos, ncode, capcode, cappos;
     uint64_t *k;
     uint32_t nk, capk;
@@ -174,8 +184,45 @@ static unsigned reg(L *l, uint32_t v)
 
 static void move(L *l, unsigned dst, unsigned src)
 {
-    if (dst != src)
+    if (dst == src)
+        return;
+    if (dst > 255 || src > 255) {
+        emit(l, meri_abc(MERI_OP_MOVEW, 0, 0, 0));
+        emit(l, dst | (uint32_t)src << 16);
+    } else {
         emit(l, meri_abc(MERI_OP_MOVE, dst, src, 0));
+    }
+}
+
+/* a low register that holds value v: its own, or temporary t (0..3) */
+static unsigned use(L *l, uint32_t v, unsigned t)
+{
+    unsigned r = reg(l, v);
+
+    if (r <= 255)
+        return r;
+    move(l, l->temp + t, r);
+    return l->temp + t;
+}
+
+/* a low register for the result v: its own, or the first temporary,
+   copied to its own by done() */
+static unsigned def(L *l, uint32_t v)
+{
+    unsigned r = reg(l, v);
+
+    if (r <= 255)
+        return r;
+    l->pending = r;
+    return l->temp;
+}
+
+static void done(L *l)
+{
+    if (l->pending) {
+        move(l, l->pending, l->temp);
+        l->pending = 0;
+    }
 }
 
 static void load_const(L *l, unsigned dst, uint64_t v)
@@ -242,8 +289,8 @@ static void release_list(L *l, const meri_list *d)
     uint32_t i;
 
     for (i = 0; i < d->n; i++)
-        emit(l, meri_abc(MERI_OP_SRELEASE, reg(l, l->sp.pool[d->first + i]), 0,
-                         0));
+        emit(l, meri_abc(MERI_OP_SRELEASE, use(l, l->sp.pool[d->first + i], 0),
+                         0, 0));
 }
 
 /* the strings that stop living on edge i of the block being emitted */
@@ -281,12 +328,12 @@ static void edge_code(L *l, const limba_inst *t, uint32_t k, uint32_t i,
             if (l->sp.pool[d->first + q] == v && !moved[q])
                 moved[q] = 1, take = false;
         if (take)
-            emit(l, meri_abc(MERI_OP_SRETAIN, reg(l, v), 0, 0));
+            emit(l, meri_abc(MERI_OP_SRETAIN, use(l, v, 0), 0, 0));
     }
     for (q = 0; q < d->n; q++)
         if (!moved[q])
-            emit(l, meri_abc(MERI_OP_SRELEASE, reg(l, l->sp.pool[d->first + q]),
-                             0, 0));
+            emit(l, meri_abc(MERI_OP_SRELEASE,
+                             use(l, l->sp.pool[d->first + q], 0), 0, 0));
     free(moved);
     if (!n)
         return;
@@ -403,7 +450,7 @@ static uint32_t branch(L *l, const limba_inst *t, bool when, uint32_t b)
         const limba_inst *ci = &l->f->insts[c];
         const uint32_t *o = l->f->operands + ci->first;
         limba_id ot = l->f->insts[o[0]].type;
-        unsigned rx = reg(l, o[0]), ry = reg(l, o[1]);
+        unsigned rx = use(l, o[0], 0), ry = use(l, o[1], 1);
         if (cond_jump(ci->cc, ot, rx, ry, &op, &x, &y, &k)) {
             emit(l, meri_abc(op, x, y, when ? k : !k));
         } else {
@@ -411,7 +458,7 @@ static uint32_t branch(L *l, const limba_inst *t, bool when, uint32_t b)
             emit(l, meri_abc(MERI_OP_TEST, l->scratch, when, 0));
         }
     } else {
-        emit(l, meri_abc(MERI_OP_TEST, reg(l, c), when, 0));
+        emit(l, meri_abc(MERI_OP_TEST, use(l, c, 0), when, 0));
     }
     return jump_to(l, b);
 }
@@ -667,17 +714,33 @@ static void call(L *l, uint32_t id, const limba_inst *in)
         outgoing(l, o, in->nops);
         if (in->imm < 0 || in->imm > 0xffff)
             fail(l, "calls function %" PRId64 ", past 65535", in->imm);
-        emit(l, meri_abx(MERI_OP_CALL, a, (uint32_t)in->imm));
+        if (a > 255) { /* the base of the arguments in a second word */
+            emit(l, meri_abx(MERI_OP_CALLW, 0, (uint32_t)in->imm));
+            emit(l, a);
+        } else {
+            emit(l, meri_abx(MERI_OP_CALL, a, (uint32_t)in->imm));
+        }
         break;
     case LIMBA_OP_CALLRT:
         outgoing(l, o, in->nops);
-        emit(l, meri_abx(MERI_OP_CALLRT, a, (uint32_t)in->imm));
+        if (a > 255) {
+            emit(l, meri_abx(MERI_OP_CALLRTW, 0, (uint32_t)in->imm));
+            emit(l, a);
+        } else {
+            emit(l, meri_abx(MERI_OP_CALLRT, a, (uint32_t)in->imm));
+        }
         break;
-    case LIMBA_OP_CALLIND:
+    case LIMBA_OP_CALLIND: {
+        unsigned c;
         outgoing(l, o + 1, in->nops - 1);
-        emit(l, meri_abc(MERI_OP_CALLI, a, reg(l, o[0]), 0));
+        c = use(l, o[0], 0);
+        if (a > 255) /* the base split in A (low) and C (high) */
+            emit(l, meri_abc(MERI_OP_CALLIW, a & 0xff, c, a >> 8));
+        else
+            emit(l, meri_abc(MERI_OP_CALLI, a, c, 0));
         emit(l, (uint32_t)in->imm);
         break;
+    }
     default: /* call.ext: an error when it runs */
         outgoing(l, o, in->nops);
         emit(l, meri_abx(MERI_OP_CALLX, a, (uint32_t)in->imm & 0xffff));
@@ -722,7 +785,7 @@ static void sw(L *l, const limba_inst *t)
 {
     const uint32_t *o = l->f->operands + t->first;
     limba_id st = l->f->insts[o[0]].type;
-    unsigned v = reg(l, o[0]);
+    unsigned v = use(l, o[0], 0);
     uint32_t c, *stub = NULL;
 
     /* a case whose edge releases strings goes to a stub that does it */
@@ -786,12 +849,15 @@ static uint32_t string_index(L *l, limba_id s)
     return p->nstrs++;
 }
 
-static void inst(L *l, uint32_t id, uint32_t next)
+static void inst_body(L *l, uint32_t id, uint32_t next)
 {
     const limba_func *f = l->f;
     const limba_inst *in = &f->insts[id];
     const uint32_t *o = f->operands + in->first;
-    unsigned a = meri_has_value(in) && !l->al.fused[id] ? reg(l, id) : 0;
+    /* a call moves its result itself */
+    bool calls = limba_ops[in->op].flags & LIMBA_OPF_CALL;
+    unsigned a =
+        meri_has_value(in) && !l->al.fused[id] && !calls ? def(l, id) : 0;
     uint32_t b;
 
     l->cur = limba_inst_pos(f, id);
@@ -812,46 +878,49 @@ static void inst(L *l, uint32_t id, uint32_t next)
         return;
     case LIMBA_F_UN:
         if (limba_type_is_float(in->type))
-            floating(l, in, a, reg(l, o[0]), 0);
+            floating(l, in, a, use(l, o[0], 0), 0);
         else
-            integer(l, in, a, reg(l, o[0]), 0);
+            integer(l, in, a, use(l, o[0], 0), 0);
         return;
     case LIMBA_F_BIN:
         if (limba_type_is_float(in->type))
-            floating(l, in, a, reg(l, o[0]), reg(l, o[1]));
+            floating(l, in, a, use(l, o[0], 0), use(l, o[1], 1));
         else
-            integer(l, in, a, reg(l, o[0]), reg(l, o[1]));
+            integer(l, in, a, use(l, o[0], 0), use(l, o[1], 1));
         return;
-    case LIMBA_F_TERN:
+    case LIMBA_F_TERN: {
+        /* the operands first: a MOVEW must not fall between the words */
+        unsigned x = use(l, o[0], 0), y = use(l, o[1], 1), z = use(l, o[2], 2);
         if (in->op == LIMBA_OP_SELECT) {
-            emit(l, meri_abc(MERI_OP_SELECT, a, reg(l, o[0]), reg(l, o[1])));
-            emit(l, reg(l, o[2]));
+            emit(l, meri_abc(MERI_OP_SELECT, a, x, y));
+            emit(l, z);
             if (in->type == LIMBA_T_STR) /* a value of its own */
                 emit(l, meri_abc(MERI_OP_SRETAIN, a, 0, 0));
         } else {
             emit(l,
                  meri_abc(in->type == LIMBA_T_F32 ? MERI_OP_FMAF : MERI_OP_FMA,
-                          a, reg(l, o[0]), reg(l, o[1])));
-            emit(l, reg(l, o[2]));
+                          a, x, y));
+            emit(l, z);
         }
         return;
+    }
     case LIMBA_F_CMP:
         if (!l->al.fused[id])
-            compare(l, a, in->cc, f->insts[o[0]].type, reg(l, o[0]),
-                    reg(l, o[1]));
+            compare(l, a, in->cc, f->insts[o[0]].type, use(l, o[0], 0),
+                    use(l, o[1], 1));
         return;
     case LIMBA_F_CONV:
-        convert(l, in, a, reg(l, o[0]));
+        convert(l, in, a, use(l, o[0], 0));
         return;
     case LIMBA_F_LOAD:
         emit(l,
              meri_abc(in->type == LIMBA_T_STR ? MERI_OP_LDS : load_op(in->type),
-                      a, reg(l, o[0]), 0));
+                      a, use(l, o[0], 0), 0));
         return;
     case LIMBA_F_STORE: {
         limba_id vt = f->insts[o[0]].type;
         emit(l, meri_abc(vt == LIMBA_T_STR ? MERI_OP_STS : store_op(vt),
-                         reg(l, o[0]), reg(l, o[1]), 0));
+                         use(l, o[0], 0), use(l, o[1], 1), 0));
         return;
     }
     case LIMBA_F_SLOT:
@@ -868,12 +937,12 @@ static void inst(L *l, uint32_t id, uint32_t next)
                          a, (uint32_t)in->imm));
         return;
     case LIMBA_F_ADDR:
-        emit(l, meri_abc(MERI_OP_ADDR, a, reg(l, o[0]), reg(l, o[1])));
+        emit(l, meri_abc(MERI_OP_ADDR, a, use(l, o[0], 0), use(l, o[1], 1)));
         emit(l, konst2(l, (uint64_t)in->imm, (uint64_t)in->imm2));
         return;
     case LIMBA_F_MEM3: {
         limba_id lt = f->insts[o[2]].type;
-        unsigned len = reg(l, o[2]);
+        unsigned len = use(l, o[2], 2);
         if (bits_of(lt) != 64) {
             if (bits_of(lt) == 1)
                 move(l, l->scratch, len);
@@ -883,11 +952,11 @@ static void inst(L *l, uint32_t id, uint32_t next)
         }
         emit(l, meri_abc(in->op == LIMBA_OP_MEMCPY ? MERI_OP_MEMCPY
                                                    : MERI_OP_MEMSET,
-                         reg(l, o[0]), reg(l, o[1]), len));
+                         use(l, o[0], 0), use(l, o[1], 1), len));
         return;
     }
     case LIMBA_F_RC:
-        emit(l, meri_abc(MERI_OP_RC, reg(l, o[0]), reg(l, o[1]),
+        emit(l, meri_abc(MERI_OP_RC, use(l, o[0], 0), use(l, o[1], 1),
                          in->op == LIMBA_OP_RELEASE));
         emit(l, (uint32_t)in->imm);
         return;
@@ -913,7 +982,7 @@ static void inst(L *l, uint32_t id, uint32_t next)
         if (l->fn->nrel_slots)
             emit(l, meri_abc(MERI_OP_RELSLOTS, 0, 0, 0));
         if (in->nops)
-            emit(l, meri_abc(MERI_OP_RET, reg(l, o[0]), 0, 0));
+            emit(l, meri_abc(MERI_OP_RET, use(l, o[0], 0), 0, 0));
         else
             emit(l, meri_abc(MERI_OP_RET0, 0, 0, 0));
         return;
@@ -924,13 +993,20 @@ static void inst(L *l, uint32_t id, uint32_t next)
         emit(l, meri_abx(MERI_OP_TRAP, 0, konst(l, (uint64_t)in->imm)));
         return;
     case LIMBA_F_CHECK:
-        emit(l, meri_abx(MERI_OP_CHECK, reg(l, o[0]),
+        emit(l, meri_abx(MERI_OP_CHECK, use(l, o[0], 0),
                          konst(l, (uint64_t)in->imm)));
         return;
     case LIMBA_F_PARAM:
         return;
     }
     fail(l, "operation %s not translated", limba_ops[in->op].text);
+}
+
+/* one instruction, and its result back to a high register if it has one */
+static void inst(L *l, uint32_t id, uint32_t next)
+{
+    inst_body(l, id, next);
+    done(l);
 }
 
 /* the slots of f in its frame, each aligned (8 bytes at least, 1 byte at
@@ -973,6 +1049,59 @@ static void layout_slots(L *l, meri_fn *fn)
             fn->rel_slots[fn->nrel_slots++] = s;
 }
 
+/* the most arguments a call of f passes (1 at least if f calls: the
+   result comes back in the first) */
+static uint32_t max_call_args(const limba_func *f)
+{
+    uint32_t i, n = 0;
+
+    for (i = 0; i < f->ninsts; i++) {
+        const limba_inst *in = &f->insts[i];
+        uint32_t k;
+        if (!(limba_ops[in->op].flags & LIMBA_OPF_CALL))
+            continue;
+        k = in->nops - (in->op == LIMBA_OP_CALLIND);
+        if (k < 1)
+            k = 1;
+        if (k > n)
+            n = k;
+    }
+    return n;
+}
+
+/* the registers of f: narrow if everything fits in 256, wide otherwise
+   (see the top); false, with a message, if even that is not enough */
+static bool registers(L *l, uint32_t nparams)
+{
+    const limba_func *f = l->f;
+    uint32_t nargs = max_call_args(f);
+
+    if (meri_alloc_regs(f, 255, 255, 0, &l->al)) {
+        l->scratch = l->al.nregs > nparams ? l->al.nregs : nparams;
+        l->outgoing = l->scratch + 1;
+        if (l->outgoing + nargs <= 256)
+            return true;
+    }
+    meri_alloc_free(&l->al);
+    if (nparams > 250) {
+        fail(l, "more than 250 parameters and 255 registers");
+        return false;
+    }
+    l->wide = true;
+    l->temp = nparams;
+    l->scratch = l->temp + 4;
+    if (!meri_alloc_regs(f, MERI_NOREG, l->temp, 5, &l->al)) {
+        fail(l, "needs more than 65535 registers, or memory");
+        return false;
+    }
+    l->outgoing = l->al.nregs > l->scratch + 1 ? l->al.nregs : l->scratch + 1;
+    if (l->outgoing + nargs > 65535) {
+        fail(l, "needs more than 65535 registers with its calls");
+        return false;
+    }
+    return true;
+}
+
 static void function(meri_program *p, uint32_t fid, meri_diag *d)
 {
     const limba_func *f = &p->m->funcs[fid];
@@ -983,8 +1112,7 @@ static void function(meri_program *p, uint32_t fid, meri_diag *d)
 
     fn->type = f->type;
     fn->nparams = p->m->types[f->type].count;
-    if (body && !meri_alloc_regs(f, 255, &l.al)) {
-        fail(&l, "needs more than 255 registers (first cut), or memory");
+    if (body && !registers(&l, fn->nparams)) {
         p->failed = true;
         meri_alloc_free(&l.al);
         return;
@@ -995,8 +1123,10 @@ static void function(meri_program *p, uint32_t fid, meri_diag *d)
         meri_alloc_free(&l.al);
         return;
     }
-    l.scratch = l.al.nregs > fn->nparams ? l.al.nregs : fn->nparams;
-    l.outgoing = l.scratch + 1;
+    if (!body) {
+        l.scratch = fn->nparams;
+        l.outgoing = l.scratch + 1;
+    }
     if (body) {
         /* the slots first: the returns release the typed ones */
         layout_slots(&l, fn);
@@ -1008,7 +1138,7 @@ static void function(meri_program *p, uint32_t fid, meri_diag *d)
         for (i = 0; i < f->blocks[0].nparams; i++)
             if (is_str(&l, f->blocks[0].insts[i]))
                 emit(&l, meri_abc(MERI_OP_SRETAIN,
-                                  reg(&l, f->blocks[0].insts[i]), 0, 0));
+                                  use(&l, f->blocks[0].insts[i], 0), 0, 0));
         for (b = 0; b < f->nblocks && !l.failed; b++) {
             const limba_block *bl = &f->blocks[b];
             uint32_t next = b + 1 < f->nblocks ? b + 1 : LIMBA_NONE;
@@ -1036,11 +1166,6 @@ static void function(meri_program *p, uint32_t fid, meri_diag *d)
         emit(&l, meri_abc(MERI_OP_UNREACH, 0, 0, 0));
     }
     fn->nregs = l.outgoing + l.maxargs;
-    if (fn->nregs > 256)
-        fail(&l,
-             "needs %" PRIu32 " registers with its calls (first cut: "
-             "256)",
-             fn->nregs);
     fn->code = l.code;
     fn->ncode = l.ncode;
     fn->pos = l.pos;

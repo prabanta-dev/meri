@@ -43,8 +43,10 @@ typedef struct {
 } meri_alloc;
 
 /* give registers to the values of f, the parameters of block 0 first in
-   0 .. n - 1; false if more than max are needed */
-bool meri_alloc_regs(const limba_func *f, uint32_t max, meri_alloc *a);
+   0 .. n - 1 (n must not pass skip), never those in skip .. skip + nskip
+   - 1; false if more than max are needed */
+bool meri_alloc_regs(const limba_func *f, uint32_t max, uint32_t skip,
+                     uint32_t nskip, meri_alloc *a);
 void meri_alloc_free(meri_alloc *a);
 
 /* where the values of type str stop living, for their releases: a list

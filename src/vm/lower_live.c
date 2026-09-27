@@ -285,13 +285,15 @@ static void find_fused(const limba_func *f, uint8_t *fused)
     free(uses);
 }
 
-bool meri_alloc_regs(const limba_func *f, uint32_t max, meri_alloc *a)
+bool meri_alloc_regs(const limba_func *f, uint32_t max, uint32_t skip,
+                     uint32_t nskip, meri_alloc *a)
 {
     live l = {0};
     interval *iv = NULL, *active = NULL;
     uint32_t *at = NULL; /* value -> index in iv */
     uint32_t n = 0, nactive = 0, b, i, k, s, j;
-    uint64_t freeset[4] = {0};
+    uint64_t *freeset = NULL; /* a bit for each register free */
+    size_t nwords = ((size_t)max + 63) / 64, wi;
     bool ok = false;
 
     memset(a, 0, sizeof(*a));
@@ -300,8 +302,9 @@ bool meri_alloc_regs(const limba_func *f, uint32_t max, meri_alloc *a)
     iv = malloc(((size_t)f->ninsts + 1) * sizeof(interval));
     active = malloc(((size_t)f->ninsts + 1) * sizeof(interval));
     at = malloc(((size_t)f->ninsts + 1) * sizeof(uint32_t));
-    if (!a->reg || !a->fused || !iv || !active || !at || max > 256 ||
-        !live_init(&l, f))
+    freeset = calloc(nwords + 1, sizeof(uint64_t));
+    if (!a->reg || !a->fused || !iv || !active || !at || !freeset ||
+        max > MERI_NOREG || !live_init(&l, f))
         goto done;
     live_solve(&l);
     find_fused(f, a->fused);
@@ -339,10 +342,11 @@ bool meri_alloc_regs(const limba_func *f, uint32_t max, meri_alloc *a)
     /* the parameters of the entry block take 0 .. n - 1, the convention
        of a call; they begin at 0 and come first in the order */
     for (k = 0; k < max; k++)
-        freeset[k / 64] |= 1ull << (k % 64);
+        if (k < skip || k >= skip + nskip)
+            freeset[k / 64] |= 1ull << (k % 64);
     if (f->nblocks) {
         const limba_block *e = &f->blocks[0];
-        if (e->nparams > max)
+        if (e->nparams > max || e->nparams > skip)
             goto done;
         for (k = 0; k < e->nparams; k++) {
             uint32_t v = e->insts[k];
@@ -368,9 +372,12 @@ bool meri_alloc_regs(const limba_func *f, uint32_t max, meri_alloc *a)
                 k++;
             }
         }
-        for (r = 0; r < max && !(freeset[r / 64] >> (r % 64) & 1); r++)
+        for (wi = 0; wi < nwords && !freeset[wi]; wi++)
             ;
-        if (r == max)
+        if (wi == nwords)
+            goto done;
+        r = (uint32_t)(wi * 64) + (uint32_t)__builtin_ctzll(freeset[wi]);
+        if (r >= max)
             goto done;
         freeset[r / 64] &= ~(1ull << (r % 64));
         a->reg[v] = (uint16_t)r;
@@ -384,6 +391,7 @@ done:
     free(iv);
     free(active);
     free(at);
+    free(freeset);
     return ok;
 }
 

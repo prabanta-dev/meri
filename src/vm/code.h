@@ -28,6 +28,8 @@ enum meri_fmt {
     MERI_FMT_AB_X,
     MERI_FMT_AkJ,
     MERI_FMT_ABkJ,
+    MERI_FMT_MOVW, /* X = destination | source << 16 */
+    MERI_FMT_BxX,  /* Bx, and X the base of the arguments */
 };
 
 enum meri_op {

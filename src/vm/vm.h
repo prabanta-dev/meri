@@ -6,8 +6,8 @@
  *
  * The strings count their references (progetto_ir.md § 11c); a block of
  * mem_alloc goes back to malloc when freed, its pointers tagged with its
- * generation (heap.h). First cut (job/plans/primo_motore.md): at most 256
- * registers a function.
+ * generation (heap.h). A function may have up to 65535 registers: past
+ * 256 it is emitted wide (lower.c).
  */
 #ifndef MERI_VM_H
 #define MERI_VM_H

@@ -27,5 +27,10 @@
   same address: a dangling pointer never equals a new one, and `ptr_live`
   and a second `mem_free` stay exact. An address at its last generation
   is not given out again.
+- A function may use up to 65535 registers. Past 256 it is emitted wide:
+  an operand in a high register comes to a low temporary with `MOVEW`,
+  the result goes back, and calls whose arguments begin past 255 take
+  their base from a second word; the other instructions do not change.
+  `tools/wide_lit.py` writes the case `tests/vm/wide.lit`.
 - The repository: build script (it builds Limba first, in the same
   variant, and links every program with its library), licence, style.

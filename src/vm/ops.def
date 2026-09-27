@@ -167,3 +167,11 @@ MERI_OP(LDS, "lds", MERI_FMT_ABC) /* R[A] = the str at R[B] + C, retained */
 /* store the str R[A] at R[B] + C: retain it, release the old one */
 MERI_OP(STS, "sts", MERI_FMT_ABC)
 MERI_OP(RELSLOTS, "relslots", MERI_FMT_NONE) /* release the typed slots */
+
+/* the registers past 255 of a wide function (lower.c): a move with 16-bit
+   indices, and the calls whose arguments begin past 255 */
+MERI_OP(MOVEW, "movew", MERI_FMT_MOVW)
+MERI_OP(CALLW, "callw", MERI_FMT_BxX)
+MERI_OP(CALLRTW, "call.rtw", MERI_FMT_BxX)
+/* the callee in R[B], the base A | C << 8, X its type */
+MERI_OP(CALLIW, "call.indw", MERI_FMT_ABC_X)

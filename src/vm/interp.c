@@ -401,7 +401,7 @@ static void run(meri_state *s, const meri_fn *entry, void **globals,
     size_t depth = 0;
     int64_t code = 0;
     uint64_t result;
-    uint32_t w, x;
+    uint32_t w, x, ca = 0;
 
     ip = fn->code;
     code = LIMBA_TRAP_NOMEM;
@@ -873,8 +873,30 @@ op_RELSLOTS: {
 
 op_CALL:
     callee = &p->fns[MERI_W_BX(w)];
+    ca = MERI_W_A(w);
     goto call;
-op_CALLI: {
+op_CALLW:
+    callee = &p->fns[MERI_W_BX(w)];
+    ca = *pc++;
+    goto call;
+op_CALLIW:
+    ca = MERI_W_A(w) | MERI_W_C(w) << 8;
+    goto calli;
+op_MOVEW:
+    x = *pc++;
+    base[x & 0xffff] = base[x >> 16];
+    NEXT;
+op_CALLRTW:
+    x = *pc++;
+    if (!meri_rt_call(s, MERI_W_BX(w), &base[x])) {
+        r->status = s->status;
+        r->code = s->code;
+        goto stop;
+    }
+    NEXT;
+op_CALLI:
+    ca = MERI_W_A(w);
+calli: {
     uintptr_t v = (uintptr_t)RB, b0 = (uintptr_t)p->fns;
     x = *pc++;
     if (v < b0 || (v - b0) % sizeof(meri_fn) ||
@@ -887,7 +909,7 @@ op_CALLI: {
     goto call;
 }
 call: {
-    uint64_t *nb = base + MERI_W_A(w);
+    uint64_t *nb = base + ca;
     uint8_t *ns = align_up(slot_top, callee->slot_align, slots_end);
     /* the slots are memory of the program: past the budget, NOMEM */
     if (!meri_state_take(s, callee->slot_size))
