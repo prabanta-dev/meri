@@ -1,0 +1,28 @@
+; output: pq
+; output: pq
+; output: pq
+; output: pq
+; result: 0
+; strings: 0
+; one string passed twice by a jump, and still used after it: each
+; parameter takes a reference of its own
+func @main : fn() -> i64 {
+b0:
+  v0 = sconst str "p"
+  v1 = sconst str "q"
+  v2 = call.rt str str_concat(v0, v1)
+  br b1(v2, v2)
+b1(v3: str, v4: str):
+  call.rt void print_str(v3)
+  call.rt void print_nl()
+  call.rt void print_str(v4)
+  call.rt void print_nl()
+  br b2(v3)
+b2(v5: str):
+  call.rt void print_str(v5)
+  call.rt void print_nl()
+  call.rt void print_str(v4)
+  call.rt void print_nl()
+  v6 = iconst i64 0
+  ret v6
+}

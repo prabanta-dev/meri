@@ -37,6 +37,7 @@ typedef struct {
     const limba_module *m;
     const limba_func *f;
     meri_program *p;
+    meri_fn *fn;
     uint32_t fid;
     meri_diag *d;
     bool failed;
@@ -47,6 +48,8 @@ typedef struct {
     uint64_t *k;
     uint32_t nk, capk;
     uint32_t *label; /* of each block */
+    uint32_t block;  /* the block being emitted */
+    meri_strplan sp; /* where the strings stop living */
     fixup *fix;
     uint32_t nfix, capfix;
 } L;
@@ -229,16 +232,62 @@ static void parallel_copy(L *l, copy *c, uint32_t n)
     }
 }
 
-/* the copies of the jump whose (block, count, args) start at operand k of
-   terminator t; the target block in *b */
-static void edge_copies(L *l, const limba_inst *t, uint32_t k, uint32_t *b)
+static bool is_str(const L *l, uint32_t v)
+{
+    return l->f->insts[v].type == LIMBA_T_STR;
+}
+
+static void release_list(L *l, const meri_list *d)
+{
+    uint32_t i;
+
+    for (i = 0; i < d->n; i++)
+        emit(l, meri_abc(MERI_OP_SRELEASE, reg(l, l->sp.pool[d->first + i]), 0,
+                         0));
+}
+
+/* the strings that stop living on edge i of the block being emitted */
+static const meri_list *edge_deaths(const L *l, uint32_t i)
+{
+    return &l->sp.edge[l->sp.edge_at[l->block] + i];
+}
+
+/* the code of the jump whose (block, count, args) start at operand k of
+   terminator t, edge i of its block: a reference for each str argument
+   (the one of a value that dies on the edge moves with it), the releases
+   of the other strings that die there, then the copies. The target block
+   in *b */
+static void edge_code(L *l, const limba_inst *t, uint32_t k, uint32_t i,
+                      uint32_t *b)
 {
     const uint32_t *o = l->f->operands + t->first + k;
     const limba_block *bl = &l->f->blocks[o[0]];
-    uint32_t n = o[1], i;
+    const meri_list *d = edge_deaths(l, i);
+    uint32_t n = o[1], j, q;
+    uint8_t *moved = NULL;
     copy *c;
 
     *b = o[0];
+    if (d->n && !(moved = calloc(d->n, 1))) {
+        fail(l, "out of memory");
+        return;
+    }
+    for (j = 0; j < n; j++) {
+        uint32_t v = o[2 + j];
+        bool take = true;
+        if (!is_str(l, v))
+            continue;
+        for (q = 0; q < d->n && take; q++)
+            if (l->sp.pool[d->first + q] == v && !moved[q])
+                moved[q] = 1, take = false;
+        if (take)
+            emit(l, meri_abc(MERI_OP_SRETAIN, reg(l, v), 0, 0));
+    }
+    for (q = 0; q < d->n; q++)
+        if (!moved[q])
+            emit(l, meri_abc(MERI_OP_SRELEASE, reg(l, l->sp.pool[d->first + q]),
+                             0, 0));
+    free(moved);
     if (!n)
         return;
     c = malloc(n * sizeof(copy));
@@ -246,16 +295,17 @@ static void edge_copies(L *l, const limba_inst *t, uint32_t k, uint32_t *b)
         fail(l, "out of memory");
         return;
     }
-    for (i = 0; i < n; i++)
-        c[i] = (copy){reg(l, bl->insts[i]), reg(l, o[2 + i])};
+    for (j = 0; j < n; j++)
+        c[j] = (copy){reg(l, bl->insts[j]), reg(l, o[2 + j])};
     parallel_copy(l, c, n);
     free(c);
 }
 
-static bool edge_has_copies(const limba_func *f, const limba_inst *t,
-                            uint32_t k)
+/* true if edge i (arguments at operand k of t) needs code of its own */
+static bool edge_has_code(const L *l, const limba_inst *t, uint32_t k,
+                          uint32_t i)
 {
-    return f->operands[t->first + k + 1] != 0;
+    return l->f->operands[t->first + k + 1] != 0 || edge_deaths(l, i)->n;
 }
 
 /* ---- comparisons ---- */
@@ -640,7 +690,7 @@ static void cbr(L *l, const limba_inst *t, uint32_t next)
 {
     const uint32_t *o = l->f->operands + t->first;
     uint32_t tk = 1, ek = 3 + o[2], tb = o[1], eb = o[ek], i;
-    bool tc = edge_has_copies(l->f, t, tk), ec = edge_has_copies(l->f, t, ek);
+    bool tc = edge_has_code(l, t, tk, 0), ec = edge_has_code(l, t, ek, 1);
 
     if (!tc && !ec) {
         if (tb == next) {
@@ -656,13 +706,13 @@ static void cbr(L *l, const limba_inst *t, uint32_t next)
     /* to the else copies (or straight to else) when false; the then
        copies; then the else copies, if any */
     i = branch(l, t, false, ec ? LIMBA_NONE : eb);
-    edge_copies(l, t, tk, &tb);
+    edge_code(l, t, tk, 0, &tb);
     if (ec || tb != next)
         jump_to(l, tb);
     if (ec) {
         if (!l->failed)
             l->fix[i].word = l->ncode;
-        edge_copies(l, t, ek, &eb);
+        edge_code(l, t, ek, 1, &eb);
         if (eb != next)
             jump_to(l, eb);
     }
@@ -673,15 +723,30 @@ static void sw(L *l, const limba_inst *t)
     const uint32_t *o = l->f->operands + t->first;
     limba_id st = l->f->insts[o[0]].type;
     unsigned v = reg(l, o[0]);
-    uint32_t c;
+    uint32_t c, *stub = NULL;
 
+    /* a case whose edge releases strings goes to a stub that does it */
+    if (o[2] && !(stub = calloc(o[2], sizeof(uint32_t)))) {
+        fail(l, "out of memory");
+        return;
+    }
     for (c = 0; c < o[2]; c++) {
         uint64_t cv = (uint64_t)o[4 + 3 * c] << 32 | o[3 + 3 * c];
+        bool code = edge_deaths(l, 1 + c)->n != 0;
         load_const(l, l->scratch, meri_norm(cv, st));
         emit(l, meri_abc(MERI_OP_JEQ, v, l->scratch, 1));
-        jump_to(l, o[5 + 3 * c]);
+        stub[c] = jump_to(l, code ? LIMBA_NONE : o[5 + 3 * c]);
     }
+    release_list(l, edge_deaths(l, 0));
     jump_to(l, o[1]);
+    for (c = 0; c < o[2]; c++)
+        if (edge_deaths(l, 1 + c)->n) {
+            if (!l->failed)
+                l->fix[stub[c]].word = l->ncode;
+            release_list(l, edge_deaths(l, 1 + c));
+            jump_to(l, o[5 + 3 * c]);
+        }
+    free(stub);
 }
 
 static uint32_t string_index(L *l, limba_id s)
@@ -761,6 +826,8 @@ static void inst(L *l, uint32_t id, uint32_t next)
         if (in->op == LIMBA_OP_SELECT) {
             emit(l, meri_abc(MERI_OP_SELECT, a, reg(l, o[0]), reg(l, o[1])));
             emit(l, reg(l, o[2]));
+            if (in->type == LIMBA_T_STR) /* a value of its own */
+                emit(l, meri_abc(MERI_OP_SRETAIN, a, 0, 0));
         } else {
             emit(l,
                  meri_abc(in->type == LIMBA_T_F32 ? MERI_OP_FMAF : MERI_OP_FMA,
@@ -777,12 +844,16 @@ static void inst(L *l, uint32_t id, uint32_t next)
         convert(l, in, a, reg(l, o[0]));
         return;
     case LIMBA_F_LOAD:
-        emit(l, meri_abc(load_op(in->type), a, reg(l, o[0]), 0));
+        emit(l,
+             meri_abc(in->type == LIMBA_T_STR ? MERI_OP_LDS : load_op(in->type),
+                      a, reg(l, o[0]), 0));
         return;
-    case LIMBA_F_STORE:
-        emit(l, meri_abc(store_op(f->insts[o[0]].type), reg(l, o[0]),
-                         reg(l, o[1]), 0));
+    case LIMBA_F_STORE: {
+        limba_id vt = f->insts[o[0]].type;
+        emit(l, meri_abc(vt == LIMBA_T_STR ? MERI_OP_STS : store_op(vt),
+                         reg(l, o[0]), reg(l, o[1]), 0));
         return;
+    }
     case LIMBA_F_SLOT:
     case LIMBA_F_GADDR:
     case LIMBA_F_FADDR:
@@ -816,8 +887,9 @@ static void inst(L *l, uint32_t id, uint32_t next)
         return;
     }
     case LIMBA_F_RC:
-        emit(l, meri_abc(MERI_OP_RC, reg(l, o[0]), reg(l, o[1]), 0));
-        emit(l, konst(l, l->m->types[in->imm].size));
+        emit(l, meri_abc(MERI_OP_RC, reg(l, o[0]), reg(l, o[1]),
+                         in->op == LIMBA_OP_RELEASE));
+        emit(l, (uint32_t)in->imm);
         return;
     case LIMBA_F_CALL:
     case LIMBA_F_CALL_IND:
@@ -826,7 +898,7 @@ static void inst(L *l, uint32_t id, uint32_t next)
         call(l, id, in);
         return;
     case LIMBA_F_BR:
-        edge_copies(l, in, 0, &b);
+        edge_code(l, in, 0, 0, &b);
         if (b != next)
             jump_to(l, b);
         return;
@@ -837,6 +909,9 @@ static void inst(L *l, uint32_t id, uint32_t next)
         sw(l, in);
         return;
     case LIMBA_F_RET:
+        release_list(l, &l->sp.at_ret[l->block]);
+        if (l->fn->nrel_slots)
+            emit(l, meri_abc(MERI_OP_RELSLOTS, 0, 0, 0));
         if (in->nops)
             emit(l, meri_abc(MERI_OP_RET, reg(l, o[0]), 0, 0));
         else
@@ -888,13 +963,21 @@ static void layout_slots(L *l, meri_fn *fn)
     }
     fn->slot_size = (off + 15) & ~(uint64_t)15;
     fn->slot_align = align;
+    fn->rel_slots = calloc((size_t)f->nslots + 1, sizeof(uint32_t));
+    if (!fn->rel_slots) {
+        fail(l, "out of memory");
+        return;
+    }
+    for (s = 0; s < f->nslots; s++)
+        if (f->slots[s].type != LIMBA_NONE && l->p->holds_str[f->slots[s].type])
+            fn->rel_slots[fn->nrel_slots++] = s;
 }
 
 static void function(meri_program *p, uint32_t fid, meri_diag *d)
 {
     const limba_func *f = &p->m->funcs[fid];
     meri_fn *fn = &p->fns[fid];
-    L l = {.m = p->m, .f = f, .p = p, .fid = fid, .d = d};
+    L l = {.m = p->m, .f = f, .p = p, .fid = fid, .d = d, .fn = fn};
     bool body = f->nblocks > 0; /* declared only: calling it is unreachable */
     uint32_t b, i;
 
@@ -906,18 +989,38 @@ static void function(meri_program *p, uint32_t fid, meri_diag *d)
         meri_alloc_free(&l.al);
         return;
     }
+    if (body && !meri_str_plan(f, &l.sp)) {
+        fail(&l, "out of memory");
+        p->failed = true;
+        meri_alloc_free(&l.al);
+        return;
+    }
     l.scratch = l.al.nregs > fn->nparams ? l.al.nregs : fn->nparams;
     l.outgoing = l.scratch + 1;
     if (body) {
+        /* the slots first: the returns release the typed ones */
+        layout_slots(&l, fn);
         l.label = calloc(f->nblocks, sizeof(uint32_t));
         if (!l.label)
             fail(&l, "out of memory");
+        /* the parameters are the callee's own: a reference each, taken
+           before block 0, which a jump may enter again */
+        for (i = 0; i < f->blocks[0].nparams; i++)
+            if (is_str(&l, f->blocks[0].insts[i]))
+                emit(&l, meri_abc(MERI_OP_SRETAIN,
+                                  reg(&l, f->blocks[0].insts[i]), 0, 0));
         for (b = 0; b < f->nblocks && !l.failed; b++) {
             const limba_block *bl = &f->blocks[b];
             uint32_t next = b + 1 < f->nblocks ? b + 1 : LIMBA_NONE;
+            l.block = b;
             l.label[b] = l.ncode;
-            for (i = bl->nparams; i < bl->ninsts; i++)
-                inst(&l, bl->insts[i], next);
+            release_list(&l, &l.sp.start[b]);
+            for (i = bl->nparams; i < bl->ninsts; i++) {
+                uint32_t id = bl->insts[i];
+                inst(&l, id, next);
+                if (i + 1 < bl->ninsts)
+                    release_list(&l, &l.sp.after[id]);
+            }
         }
         for (i = 0; i < l.nfix && !l.failed; i++) {
             uint32_t to = l.fix[i].block == LIMBA_NONE
@@ -928,7 +1031,6 @@ static void function(meri_program *p, uint32_t fid, meri_diag *d)
                 fail(&l, "a jump too far");
             l.code[l.fix[i].at] = meri_sj(MERI_OP_JMP, (int32_t)off);
         }
-        layout_slots(&l, fn);
     } else {
         l.cur = 0;
         emit(&l, meri_abc(MERI_OP_UNREACH, 0, 0, 0));
@@ -947,6 +1049,7 @@ static void function(meri_program *p, uint32_t fid, meri_diag *d)
     free(l.label);
     free(l.fix);
     meri_alloc_free(&l.al);
+    meri_strplan_free(&l.sp);
     if (l.failed)
         p->failed = true;
 }
@@ -971,6 +1074,14 @@ meri_program *meri_compile(const limba_module *m, meri_diag *d)
         free(p);
         return NULL;
     }
+    p->holds_str = calloc((size_t)m->ntypes + 1, 1);
+    if (!p->holds_str) {
+        snprintf(d->msg, sizeof(d->msg), "out of memory");
+        meri_program_free(p);
+        return NULL;
+    }
+    for (i = 0; i < m->ntypes; i++)
+        p->holds_str[i] = limba_type_holds_str(m, i);
     for (i = 0; i < m->nfuncs && !p->failed; i++)
         function(p, i, d);
     if (p->failed) {
@@ -991,11 +1102,13 @@ void meri_program_free(meri_program *p)
         free(p->fns[i].pos);
         free(p->fns[i].k);
         free(p->fns[i].slot_off);
+        free(p->fns[i].rel_slots);
     }
     for (i = 0; i < p->nstrs; i++)
         free(p->strs[i]);
     free(p->fns);
     free(p->strs);
     free(p->str_ids);
+    free(p->holds_str);
     free(p);
 }

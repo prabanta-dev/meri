@@ -1,0 +1,35 @@
+; output: xy
+; output: yx
+; result: 0
+; strings: 0
+; a record with a string in typed slots: store takes a reference and
+; releases the one it overwrites, the copy is retain, release, memcpy,
+; and the slots release theirs at ret
+type %R = { str @0, i64 @8 } size 16 align 8
+
+func @main : fn() -> i64 {
+  slot 16 align 8 type %R
+  slot 16 align 8 type %R
+b0:
+  v0 = slot ptr $0
+  v1 = slot ptr $1
+  v2 = sconst str "x"
+  v3 = sconst str "y"
+  v4 = call.rt str str_concat(v2, v3)
+  store v4, v0
+  v5 = iconst i64 1
+  retain %R v0, v5
+  release %R v1, v5
+  v6 = iconst i64 16
+  memcpy v1, v0, v6
+  v7 = load str v1
+  call.rt void print_str(v7)
+  call.rt void print_nl()
+  v9 = call.rt str str_concat(v3, v2)
+  store v9, v1
+  v10 = load str v1
+  call.rt void print_str(v10)
+  call.rt void print_nl()
+  v8 = iconst i64 0
+  ret v8
+}

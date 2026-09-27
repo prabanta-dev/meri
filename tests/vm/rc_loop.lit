@@ -1,0 +1,27 @@
+; output: ab
+; output: abb
+; output: abbb
+; output: abbbb
+; result: 0
+; strings: 0
+; a string made again on each turn of a loop: the old one dies after its
+; last use, the new one moves to the parameter, the last dies on the exit
+func @main : fn() -> i64 {
+b0:
+  v0 = sconst str "a"
+  v1 = iconst i64 0
+  br b1(v0, v1)
+b1(v2: str, v3: i64):
+  v4 = sconst str "b"
+  v5 = call.rt str str_concat(v2, v4)
+  call.rt void print_str(v5)
+  call.rt void print_nl()
+  v6 = iconst i64 1
+  v7 = add i64 v3, v6
+  v8 = iconst i64 4
+  v9 = icmp.slt i1 v7, v8
+  cbr v9, b1(v5, v7), b2
+b2:
+  v10 = iconst i64 0
+  ret v10
+}

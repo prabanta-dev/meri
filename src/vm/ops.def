@@ -131,9 +131,9 @@ MERI_OP(GADDR, "gaddr", MERI_FMT_ABx) /* address of global Bx */
 MERI_OP(FADDR, "faddr", MERI_FMT_ABx) /* the value of function Bx */
 MERI_OP(MEMCPY, "memcpy", MERI_FMT_ABC) /* dst R[A], src R[B], len R[C] */
 MERI_OP(MEMSET, "memset", MERI_FMT_ABC) /* byte: the low 8 bits of R[B] */
-/* retain and release: p R[A], n R[B], K[X] the size of the type; first
-   cut, no counts: RANGE for a negative n or an overflowing n * size */
-MERI_OP(RC, "rc", MERI_FMT_AB_X)
+/* retain (C = 0) and release (C = 1) every str of n = R[B] values of type
+   X at p = R[A]; RANGE for a negative n or an overflowing n * size */
+MERI_OP(RC, "rc", MERI_FMT_ABC_X)
 
 /* calls: the arguments in R[A], R[A + 1]...; the result in R[A] */
 MERI_OP(CALL, "call", MERI_FMT_ABx)     /* function Bx */
@@ -159,3 +159,11 @@ MERI_OP(JFLE, "jfle", MERI_FMT_ABkJ)
 MERI_OP(TRAP, "trap", MERI_FMT_ABx)   /* the code is K[Bx] */
 MERI_OP(CHECK, "check", MERI_FMT_ABx) /* the trap K[Bx] if R[A] is 0 */
 MERI_OP(UNREACH, "unreachable", MERI_FMT_NONE)
+
+/* the references of the strings (vm/str.h) */
+MERI_OP(SRETAIN, "sretain", MERI_FMT_A)   /* one more on R[A] */
+MERI_OP(SRELEASE, "srelease", MERI_FMT_A) /* one less on R[A] */
+MERI_OP(LDS, "lds", MERI_FMT_ABC) /* R[A] = the str at R[B] + C, retained */
+/* store the str R[A] at R[B] + C: retain it, release the old one */
+MERI_OP(STS, "sts", MERI_FMT_ABC)
+MERI_OP(RELSLOTS, "relslots", MERI_FMT_NONE) /* release the typed slots */

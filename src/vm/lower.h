@@ -47,6 +47,27 @@ typedef struct {
 bool meri_alloc_regs(const limba_func *f, uint32_t max, meri_alloc *a);
 void meri_alloc_free(meri_alloc *a);
 
+/* where the values of type str stop living, for their releases: a list
+   of value ids for each place */
+typedef struct {
+    uint32_t first, n; /* in pool */
+} meri_list;
+
+typedef struct {
+    uint32_t *pool;
+    uint32_t npool, cappool;
+    meri_list *after;  /* of each instruction: dead right after it */
+    meri_list *start;  /* of each block: parameters never used */
+    uint32_t *edge_at; /* of each block: its first edge in edge */
+    meri_list *edge;   /* of each edge (block, successor i): dead on it */
+    meri_list *at_ret; /* of each block ending in ret: alive at the ret,
+                          but the value returned */
+} meri_strplan;
+
+/* the plan of f; false when memory is exhausted */
+bool meri_str_plan(const limba_func *f, meri_strplan *p);
+void meri_strplan_free(meri_strplan *p);
+
 /* the canonical form of v as an integer of type t: sign-extended from its
    width, 0 or 1 for i1 */
 uint64_t meri_norm(uint64_t v, limba_id t);

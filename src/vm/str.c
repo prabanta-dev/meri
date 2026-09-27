@@ -10,7 +10,7 @@
 
 /* the empty string, with its NUL: what the value 0 holds (a static
    flexible array member, an extension of GCC and Clang) */
-const meri_str meri_str_empty = {0, {0}};
+const meri_str meri_str_empty = {MERI_RC_IMMORTAL, 0, 0, {0}};
 
 meri_str *meri_str_alloc(size_t n)
 {
@@ -21,6 +21,8 @@ meri_str *meri_str_alloc(size_t n)
     s = malloc(sizeof(meri_str) + n + 1);
     if (!s)
         return NULL;
+    s->rc = MERI_RC_IMMORTAL;
+    s->slot = 0;
     s->len = n;
     s->data[n] = 0;
     return s;

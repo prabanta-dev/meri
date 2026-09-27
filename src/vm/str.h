@@ -3,8 +3,11 @@
 /*
  * str.h - the strings of a program: a length, the bytes and a NUL after
  * them (for str_ptr). A str value is a pointer to one, and 0 is "" in
- * memory and in registers alike (progetto_ir.md § 11c). First cut: a
- * string is never freed, so nothing is counted.
+ * memory and in registers alike (progetto_ir.md § 11c).
+ *
+ * A string counts its references: every register that holds it, every
+ * word of memory (store str, retain). The constants of a program and the
+ * initial values of its globals are immortal: counts leave them alone.
  */
 #ifndef MERI_STR_H
 #define MERI_STR_H
@@ -13,14 +16,27 @@
 #include <stdint.h>
 
 typedef struct {
+    uint64_t rc; /* references; MERI_RC_IMMORTAL for a constant */
+    size_t slot; /* where the run lists it, to free what is left */
     size_t len;
     char data[];
 } meri_str;
 
-/* a new string of n bytes copied from s (s may be NULL for n = 0); NULL
-   when memory is exhausted */
+#define MERI_RC_IMMORTAL UINT64_MAX
+
+/* one reference more on the string of v (0 and immortals: nothing) */
+static inline void meri_str_retain(uint64_t v)
+{
+    meri_str *s = (meri_str *)(uintptr_t)v;
+
+    if (s && s->rc != MERI_RC_IMMORTAL)
+        s->rc++;
+}
+
+/* a new immortal string of n bytes copied from s (s may be NULL for
+   n = 0); NULL when memory is exhausted */
 meri_str *meri_str_new(const char *s, size_t n);
-/* a new string of n bytes, to be written by the caller */
+/* a new immortal string of n bytes, to be written by the caller */
 meri_str *meri_str_alloc(size_t n);
 
 /* the string a value holds: never NULL, 0 is the empty string */

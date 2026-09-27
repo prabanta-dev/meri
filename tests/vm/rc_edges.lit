@@ -1,0 +1,49 @@
+; output: 1
+; output: ab
+; output: 2
+; output: 3
+; output: cc
+; result: 0
+; strings: 0
+; a string alive on some edges only: released on the edges of a cbr and
+; of a switch where it dies
+func @pick : fn(i32) -> void {
+b0(v0: i32):
+  v1 = sconst str "a"
+  v2 = sconst str "b"
+  v3 = call.rt str str_concat(v1, v2)
+  switch v0, b3 [1: b1, 2: b2]
+b1:
+  call.rt void print_str(v3)
+  call.rt void print_nl()
+  ret
+b2:
+  ret
+b3:
+  ret
+}
+
+func @main : fn() -> i64 {
+b0:
+  v0 = iconst i64 1
+  br b1(v0)
+b1(v1: i64):
+  call.rt void print_i64(v1)
+  call.rt void print_nl()
+  v2 = trunc i32 v1
+  call void @pick(v2)
+  v3 = sconst str "c"
+  v4 = call.rt str str_concat(v3, v3)
+  v5 = iconst i64 2
+  v6 = icmp.sle i1 v1, v5
+  cbr v6, b2, b3
+b2:
+  v7 = iconst i64 1
+  v8 = add i64 v1, v7
+  br b1(v8)
+b3:
+  call.rt void print_str(v4)
+  call.rt void print_nl()
+  v9 = iconst i64 0
+  ret v9
+}

@@ -387,6 +387,150 @@ done:
     return ok;
 }
 
+/* ---- the deaths of the strings ---- */
+
+static bool is_str(const limba_func *f, uint32_t v)
+{
+    return f->insts[v].type == LIMBA_T_STR;
+}
+
+/* v appended to list l, the last list of the pool */
+static bool plan_add(meri_strplan *p, meri_list *l, uint32_t v)
+{
+    uint32_t i;
+
+    for (i = 0; i < l->n; i++)
+        if (p->pool[l->first + i] == v)
+            return true;
+    if (p->npool == p->cappool) {
+        uint32_t cap = p->cappool ? 2 * p->cappool : 64;
+        uint32_t *q = cap > UINT32_MAX / 2
+                          ? NULL
+                          : realloc(p->pool, (size_t)cap * sizeof(uint32_t));
+        if (!q)
+            return false;
+        p->pool = q;
+        p->cappool = cap;
+    }
+    p->pool[p->npool++] = v;
+    l->n++;
+    return true;
+}
+
+static void begin(meri_strplan *p, meri_list *l)
+{
+    l->first = p->npool;
+    l->n = 0;
+}
+
+bool meri_str_plan(const limba_func *f, meri_strplan *p)
+{
+    live l = {0};
+    uint64_t *now = NULL; /* alive at the point being walked */
+    uint32_t b, i, nedges = 0, e;
+    size_t w;
+    bool ok = false;
+
+    memset(p, 0, sizeof(*p));
+    for (b = 0; b < f->nblocks; b++)
+        nedges += meri_nsuccs(f, b);
+    p->after = calloc((size_t)f->ninsts + 1, sizeof(meri_list));
+    p->start = calloc((size_t)f->nblocks + 1, sizeof(meri_list));
+    p->at_ret = calloc((size_t)f->nblocks + 1, sizeof(meri_list));
+    p->edge_at = calloc((size_t)f->nblocks + 1, sizeof(uint32_t));
+    p->edge = calloc((size_t)nedges + 1, sizeof(meri_list));
+    if (!p->after || !p->start || !p->at_ret || !p->edge_at || !p->edge ||
+        !live_init(&l, f))
+        goto done;
+    live_solve(&l);
+    now = calloc(l.words, sizeof(uint64_t));
+    if (!now)
+        goto done;
+
+    for (b = 0, e = 0; b < f->nblocks; b++) {
+        const limba_block *bl = &f->blocks[b];
+        uint32_t t = bl->insts[bl->ninsts - 1], ns, s, j, k;
+        const limba_inst *term = &f->insts[t];
+        meri_span sp[3];
+
+        /* alive just before the terminator: alive after it, and its uses */
+        memcpy(now, set_of(l.out, l.words, b), l.words * sizeof(uint64_t));
+        ns = meri_value_spans(f, term, sp);
+        for (s = 0; s < ns; s++)
+            for (j = 0; j < sp[s].n; j++)
+                set_add(now, sp[s].o[j]);
+
+        p->edge_at[b] = e;
+        if (term->op == LIMBA_OP_RET) {
+            uint32_t r = term->nops ? f->operands[term->first] : LIMBA_NONE;
+            begin(p, &p->at_ret[b]);
+            for (i = 0; i < f->ninsts; i++)
+                if (set_has(now, i) && is_str(f, i) && i != r &&
+                    !plan_add(p, &p->at_ret[b], i))
+                    goto done;
+        }
+        for (k = 0; k < meri_nsuccs(f, b); k++, e++) {
+            const uint64_t *in = set_of(l.in, l.words, meri_succ(f, b, k));
+            begin(p, &p->edge[e]);
+            for (i = 0; i < f->ninsts; i++)
+                if (set_has(now, i) && !set_has(in, i) && is_str(f, i) &&
+                    !plan_add(p, &p->edge[e], i))
+                    goto done;
+        }
+
+        /* the other instructions, backwards */
+        for (k = bl->ninsts - 1; k-- > bl->nparams;) {
+            uint32_t id = bl->insts[k];
+            const limba_inst *in = &f->insts[id];
+            begin(p, &p->after[id]);
+            if (meri_has_value(in)) {
+                if (is_str(f, id) && !set_has(now, id) &&
+                    !plan_add(p, &p->after[id], id))
+                    goto done;
+                now[id / 64] &= ~(1ull << (id % 64));
+            }
+            ns = meri_value_spans(f, in, sp);
+            for (s = 0; s < ns; s++)
+                for (j = 0; j < sp[s].n; j++) {
+                    uint32_t u = sp[s].o[j];
+                    if (is_str(f, u) && !set_has(now, u) &&
+                        !plan_add(p, &p->after[id], u))
+                        goto done;
+                }
+            for (s = 0; s < ns; s++)
+                for (j = 0; j < sp[s].n; j++)
+                    set_add(now, sp[s].o[j]);
+        }
+        begin(p, &p->start[b]);
+        for (k = 0; k < bl->nparams; k++) {
+            uint32_t v = bl->insts[k];
+            if (is_str(f, v) && !set_has(now, v) &&
+                !plan_add(p, &p->start[b], v))
+                goto done;
+        }
+        for (w = 0; w < l.words; w++)
+            now[w] = 0;
+    }
+    ok = true;
+done:
+    free(now);
+    live_free(&l);
+    if (!ok)
+        meri_strplan_free(p);
+    return ok;
+}
+
+void meri_strplan_free(meri_strplan *p)
+{
+    free(p->pool);
+    free(p->after);
+    free(p->start);
+    free(p->edge_at);
+    free(p->edge);
+    free(p->at_ret);
+    memset(p, 0, sizeof(*p));
+}
+
 void meri_alloc_free(meri_alloc *a)
 {
     free(a->reg);

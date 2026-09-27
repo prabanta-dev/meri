@@ -4,8 +4,9 @@
  * vm.h - the virtual machine of Meri: a module of the IR compiled to
  * bytecode (meri_compile), and its execution (meri_run).
  *
- * First cut (job/plans/primo_motore.md): no reference counts, memory of
- * mem_alloc never reused, at most 256 registers a function.
+ * The strings count their references (progetto_ir.md § 11c). First cut
+ * (job/plans/primo_motore.md): the memory of mem_alloc is never reused,
+ * at most 256 registers a function.
  */
 #ifndef MERI_VM_H
 #define MERI_VM_H
@@ -31,7 +32,9 @@ typedef struct {
     uint32_t nslots;
     uint64_t slot_size;  /* bytes of the slot area */
     uint64_t slot_align; /* its alignment */
-    limba_id type;       /* the function type in the module */
+    uint32_t *rel_slots; /* the typed slots holding a str: released at ret */
+    uint32_t nrel_slots;
+    limba_id type; /* the function type in the module */
 } meri_fn;
 
 typedef struct {
@@ -41,7 +44,8 @@ typedef struct {
     meri_str **strs;   /* the string constants, immortal */
     limba_id *str_ids; /* the string of the module each one holds */
     uint32_t nstrs, capstrs;
-    bool failed; /* while compiling */
+    uint8_t *holds_str; /* of each type of the module: has a str in it */
+    bool failed;        /* while compiling */
 } meri_program;
 
 /* a function the compiler cannot translate: which one and why */
@@ -72,6 +76,9 @@ typedef struct {
     int64_t code; /* the trap or the halt code */
     uint32_t pos; /* where it stopped: a limba_pos index, 0 if unknown */
     uint64_t ret; /* what the entry returned, if it returned */
+    /* the strings of the run still alive when it ended (those in globals
+       and in blocks never freed, or a missed release) */
+    uint64_t live_strings;
 } meri_result;
 
 typedef struct {

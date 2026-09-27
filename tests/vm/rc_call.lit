@@ -1,0 +1,32 @@
+; output: <x>
+; output: <<x>>
+; result: 0
+; strings: 1
+; strings through calls: a parameter is the callee's own reference, a
+; result moves to the caller; one kept in a global stays alive
+global @kept : str
+
+func @wrap : fn(str) -> str {
+b0(v0: str):
+  v1 = sconst str "<"
+  v2 = sconst str ">"
+  v3 = call.rt str str_concat(v1, v0)
+  v4 = call.rt str str_concat(v3, v2)
+  ret v4
+}
+
+func @main : fn() -> i64 {
+b0:
+  v0 = sconst str "x"
+  v1 = call str @wrap(v0)
+  call.rt void print_str(v1)
+  call.rt void print_nl()
+  v2 = call str @wrap(v1)
+  call.rt void print_str(v2)
+  call.rt void print_nl()
+  v3 = gaddr ptr @kept
+  store v2, v3
+  v4 = call str @wrap(v2)
+  v5 = iconst i64 0
+  ret v5
+}

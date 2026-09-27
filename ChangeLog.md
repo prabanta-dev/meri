@@ -17,5 +17,10 @@
   errors; the numbers of `val` are read by Limba's `limba/val.h`; a run
   has a memory budget (`--max-memory`), blocks, strings, globals and slots
   counted against it, "out of memory" past it.
+- Strings count their references: in registers (a value owns one, from
+  its definition to where it stops living, found by liveness at each
+  instruction and edge) and in memory (store, load, retain and release
+  of a type, typed slots released at every return); the last reference
+  frees the string. `test_vm` checks how many are alive at the end.
 - The repository: build script (it builds Limba first, in the same
   variant, and links every program with its library), licence, style.

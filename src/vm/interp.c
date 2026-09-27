@@ -333,7 +333,7 @@ static void **globals_new(meri_state *s)
         } else if (gl->init == LIMBA_INIT_STR) {
             size_t n;
             const char *text = limba_str(m, (limba_id)gl->value, &n);
-            meri_str *x = meri_state_str(s, text, n);
+            meri_str *x = meri_state_immortal(s, text, n);
             if (!x) {
                 for (;; i--) {
                     free(g[i]);
@@ -830,10 +830,43 @@ op_RC: {
     int64_t n = (int64_t)RB;
     uint64_t size;
     x = *pc++;
-    size = k[x];
+    size = p->m->types[x].size;
     if (n < 0 || (n && size > UINT64_MAX / (uint64_t)n))
         TRAP(LIMBA_TRAP_RANGE);
-    NEXT; /* first cut: no counts */
+    meri_state_rc(s, RA, x, (uint64_t)n, MERI_W_C(w) ? -1 : 1);
+    NEXT;
+}
+op_SRETAIN:
+    meri_str_retain(RA);
+    NEXT;
+op_SRELEASE:
+    meri_state_release(s, RA);
+    NEXT;
+op_LDS: {
+    uint64_t v;
+    memcpy(&v, (const void *)(uintptr_t)(RB + MERI_W_C(w)), sizeof(v));
+    meri_str_retain(v);
+    RA = v;
+    NEXT;
+}
+op_STS: {
+    void *q = (void *)(uintptr_t)(RB + MERI_W_C(w));
+    uint64_t v = RA, old;
+    memcpy(&old, q, sizeof(old));
+    meri_str_retain(v);
+    memcpy(q, &v, sizeof(v));
+    meri_state_release(s, old);
+    NEXT;
+}
+op_RELSLOTS: {
+    const limba_func *lf = &p->m->funcs[fn - p->fns];
+    uint32_t i;
+    for (i = 0; i < fn->nrel_slots; i++) {
+        uint32_t k2 = fn->rel_slots[i];
+        meri_state_rc(s, (uint64_t)(uintptr_t)(slots + fn->slot_off[k2]),
+                      lf->slots[k2].type, 1, -1);
+    }
+    NEXT;
 }
 
 op_CALL:
@@ -958,7 +991,7 @@ void meri_run(const meri_program *p, const char *entry, const meri_env *env,
     uint8_t *slotmem = NULL;
     frame *frames = NULL;
     size_t nslotmem;
-    uint32_t i;
+    size_t i;
 
     s.budget = env->max_memory ? env->max_memory : meri_default_memory();
     nslotmem = (size_t)(s.budget < SLOT_MAX - SLOT_SLACK ? s.budget + SLOT_SLACK
@@ -990,6 +1023,8 @@ void meri_run(const meri_program *p, const char *entry, const meri_env *env,
             free(globals[i]);
         free(globals);
     }
+    for (i = 0; i < s.nstrs; i++)
+        r->live_strings += s.strs[i]->rc != MERI_RC_IMMORTAL;
     meri_heap_clear(&s.heap);
     meri_state_free_strs(&s);
 }

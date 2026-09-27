@@ -20,7 +20,7 @@ typedef struct {
     meri_heap heap;
     int status;      /* enum meri_status, when a call stops the run */
     int64_t code;    /* its trap or halt code */
-    meri_str **strs; /* every string made while running, freed at the end */
+    meri_str **strs; /* the strings of the run alive, freed at the end */
     size_t nstrs, capstrs;
     /* the memory of the program (blocks of mem_alloc, strings, globals,
        the slots of the calls alive) against its budget: past it, NOMEM */
@@ -32,11 +32,18 @@ typedef struct {
 bool meri_state_take(meri_state *s, uint64_t n);
 void meri_state_give(meri_state *s, uint64_t n);
 
-/* a string of the run, n bytes from p (p may be NULL for 0); NULL when
-   memory is exhausted */
+/* a string of the run, n bytes from p (p may be NULL for 0), with one
+   reference, the caller's; NULL when memory is exhausted */
 meri_str *meri_state_str(meri_state *s, const char *p, size_t n);
 /* a string of the run of n bytes, written by the caller */
 meri_str *meri_state_alloc(meri_state *s, size_t n);
+/* one reference less on the string of v; the last one frees it */
+void meri_state_release(meri_state *s, uint64_t v);
+/* an immortal string of the run (an initial value of a global) */
+meri_str *meri_state_immortal(meri_state *s, const char *p, size_t n);
+/* retain (d = 1) or release (d = -1) every str of n values of type t
+   at p */
+void meri_state_rc(meri_state *s, uint64_t p, limba_id t, uint64_t n, int d);
 void meri_state_free_strs(meri_state *s);
 
 /* call runtime function id with the arguments a[0..n); the result, if

@@ -38,6 +38,12 @@ void meri_state_give(meri_state *s, uint64_t n)
     s->used -= n < s->used ? n : s->used;
 }
 
+/* the bytes a string of n takes from the budget */
+static uint64_t str_bytes(size_t n)
+{
+    return (uint64_t)sizeof(meri_str) + n + 1;
+}
+
 meri_str *meri_state_alloc(meri_state *s, size_t n)
 {
     meri_str *x;
@@ -52,15 +58,17 @@ meri_str *meri_state_alloc(meri_state *s, size_t n)
         s->strs = strs;
         s->capstrs = cap;
     }
-    /* a string is never freed in the first cut: it stays counted */
     if (n > SIZE_MAX - sizeof(meri_str) - 1 ||
-        !meri_state_take(s, sizeof(meri_str) + n + 1))
+        !meri_state_take(s, str_bytes(n)))
         return NULL;
     x = meri_str_alloc(n);
-    if (x)
-        s->strs[s->nstrs++] = x;
-    else
-        meri_state_give(s, sizeof(meri_str) + n + 1);
+    if (!x) {
+        meri_state_give(s, str_bytes(n));
+        return NULL;
+    }
+    x->rc = 1;
+    x->slot = s->nstrs;
+    s->strs[s->nstrs++] = x;
     return x;
 }
 
@@ -71,6 +79,68 @@ meri_str *meri_state_str(meri_state *s, const char *p, size_t n)
     if (x && n)
         memcpy(x->data, p, n);
     return x;
+}
+
+meri_str *meri_state_immortal(meri_state *s, const char *p, size_t n)
+{
+    meri_str *x = meri_state_str(s, p, n);
+
+    if (x)
+        x->rc = MERI_RC_IMMORTAL;
+    return x;
+}
+
+void meri_state_release(meri_state *s, uint64_t v)
+{
+    meri_str *x = (meri_str *)(uintptr_t)v, *last;
+
+    if (!x || x->rc == MERI_RC_IMMORTAL || --x->rc)
+        return;
+    last = s->strs[--s->nstrs];
+    s->strs[x->slot] = last;
+    last->slot = x->slot;
+    meri_state_give(s, str_bytes(x->len));
+    free(x);
+}
+
+/* retain or release the str of one value of type t at p */
+static void rc_walk(meri_state *s, uintptr_t p, limba_id t, int d)
+{
+    const limba_module *m = s->p->m;
+    const limba_type *ty = &m->types[t];
+    uint32_t i;
+
+    if (!s->p->holds_str[t])
+        return;
+    switch (ty->kind) {
+    case LIMBA_TK_STR: {
+        uint64_t v;
+        memcpy(&v, (const void *)p, sizeof(v));
+        if (d > 0)
+            meri_str_retain(v);
+        else
+            meri_state_release(s, v);
+        return;
+    }
+    case LIMBA_TK_ARRAY:
+        for (i = 0; i < ty->count; i++)
+            rc_walk(s, p + (uintptr_t)i * m->types[ty->elem].size, ty->elem, d);
+        return;
+    case LIMBA_TK_STRUCT:
+        for (i = 0; i < ty->count; i++) {
+            const limba_member *f = &m->members[ty->first + i];
+            rc_walk(s, p + f->offset, f->type, d);
+        }
+        return;
+    }
+}
+
+void meri_state_rc(meri_state *s, uint64_t p, limba_id t, uint64_t n, int d)
+{
+    uint64_t size = s->p->m->types[t].size, i;
+
+    for (i = 0; i < n; i++)
+        rc_walk(s, (uintptr_t)(p + i * size), t, d);
 }
 
 void meri_state_free_strs(meri_state *s)
@@ -288,7 +358,14 @@ static int console(meri_state *s, uint32_t id, uint64_t *a)
         meri_str *x = line(s, s->env->in, &ok);
         if (!x)
             return nomem(s);
-        put(a[0], LIMBA_T_STR, meri_str_value(x));
+        {
+            /* as store str: the line's reference goes to memory, the old
+               value is released */
+            uint64_t old;
+            memcpy(&old, (const void *)(uintptr_t)a[0], sizeof(old));
+            put(a[0], LIMBA_T_STR, meri_str_value(x));
+            meri_state_release(s, old);
+        }
         a[0] = ok;
         return DONE;
     }
