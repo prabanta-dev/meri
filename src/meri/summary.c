@@ -2,8 +2,9 @@
    Copyright (C) 2026 Maurizio Cammalleri */
 /*
  * summary.c - a short account of a module of the IR: the counts of its
- * tables, then one line for each function, then how often each operation
- * occurs in the whole module.
+ * tables, then one line for each function (with its slots, and how many
+ * of them have a type), then how often each operation occurs in the whole
+ * module.
  */
 #include "summary.h"
 
@@ -42,13 +43,18 @@ void meri_summary(const limba_module *m, FILE *out)
     for (i = 0; i < m->nfuncs; i++) {
         const limba_func *f = &m->funcs[i];
 
+        uint32_t typed = 0;
+
+        for (k = 0; k < f->nslots; k++)
+            if (f->slots[k].type != LIMBA_NONE)
+                typed++;
         fprintf(out, "func %" PRIu32 " ", i);
         put_name(m, f->name, out);
         fprintf(out,
                 "%s: blocks %" PRIu32 ", insts %" PRIu32 ", slots %" PRIu32
-                "\n",
+                " (typed %" PRIu32 ")\n",
                 f->flags & LIMBA_SYM_EXPORT ? " (export)" : "", f->nblocks,
-                f->ninsts, f->nslots);
+                f->ninsts, f->nslots, typed);
         nblocks += f->nblocks;
         ninsts += f->ninsts;
         for (k = 0; k < f->ninsts; k++)
