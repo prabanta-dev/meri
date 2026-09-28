@@ -91,5 +91,10 @@
   are in registers already. The result of a call goes straight to its
   register (`CALLND`), and `mem_free` is an instruction (`FREE`).
   binary-trees runs 17 % fewer instructions.
+- The check of a small block alive is in line in the interpreter, the
+  arena found last is remembered (arenas are never freed during a run),
+  and the classes whose step is a power of two check it with a mask; the
+  budget is counted in line, and new small blocks of 16 and 32 bytes are
+  zeroed in line. binary-trees: 23 % fewer cycles.
 - The repository: build script (it builds Limba first, in the same
   variant, and links every program with its library), licence, style.

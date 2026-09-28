@@ -29,8 +29,18 @@ typedef struct {
 
 /* n bytes more of the program's memory; false, and nothing counted, if
    they do not fit in its budget */
-bool meri_state_take(meri_state *s, uint64_t n);
-void meri_state_give(meri_state *s, uint64_t n);
+static inline bool meri_state_take(meri_state *s, uint64_t n)
+{
+    if (n > s->budget || s->used > s->budget - n)
+        return false;
+    s->used += n;
+    return true;
+}
+
+static inline void meri_state_give(meri_state *s, uint64_t n)
+{
+    s->used -= n < s->used ? n : s->used;
+}
 
 /* a string of the run, n bytes from p (p may be NULL for 0), with one
    reference, the caller's; NULL when memory is exhausted */

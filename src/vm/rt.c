@@ -25,19 +25,6 @@ bool meri_rt_trap(meri_state *s, int64_t code)
     return false;
 }
 
-bool meri_state_take(meri_state *s, uint64_t n)
-{
-    if (n > s->budget || s->used > s->budget - n)
-        return false;
-    s->used += n;
-    return true;
-}
-
-void meri_state_give(meri_state *s, uint64_t n)
-{
-    s->used -= n < s->used ? n : s->used;
-}
-
 /* the bytes a string of n takes from the budget */
 static uint64_t str_bytes(size_t n)
 {

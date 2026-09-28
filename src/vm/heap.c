@@ -11,27 +11,15 @@
 #include <stdlib.h>
 #include <string.h>
 
-#if defined(__SANITIZE_ADDRESS__)
-#define SLABS 0
-#elif defined(__has_feature)
-#if __has_feature(address_sanitizer)
-#define SLABS 0
-#endif
-#endif
-#ifndef SLABS
-#define SLABS 1
-#endif
-
-#define ARENA ((uintptr_t)1 << 20)
-#define ARENA_HEAD 64 /* the class of the arena, then its blocks */
-#define HEAD 16       /* before every small block */
-
-/* the header of a small block */
-typedef struct {
-    uint16_t gen;
-    uint8_t live, retired;
-    uint32_t pad[3];
-} slot_head;
+/* the names of heap.h, short */
+#define SLABS MERI_SLABS
+#define ARENA MERI_ARENA
+#define ARENA_HEAD MERI_ARENA_HEAD
+#define HEAD MERI_HEAD
+#define slot_head meri_slot_head
+#define small_head meri_small_head
+#define small_alive meri_small_alive
+#define is_arena meri_is_arena
 
 static size_t hash(uintptr_t p, size_t cap)
 {
@@ -148,15 +136,19 @@ static uint64_t large_alloc(meri_heap *h, uint64_t n)
 
 /* ---- the small blocks ---- */
 
-static bool is_arena(const meri_heap *h, uintptr_t base)
+/* base is one of the arenas (heap.h: the one found last is checked
+   before this) */
+bool meri_heap_find_arena(meri_heap *h, uintptr_t base)
 {
     size_t k;
 
     if (!h->capa)
         return false;
     for (k = hash(base, h->capa); h->arena[k]; k = (k + 1) & (h->capa - 1))
-        if (h->arena[k] == base)
+        if (h->arena[k] == base) {
+            h->last = base;
             return true;
+        }
     return false;
 }
 
@@ -207,38 +199,6 @@ static bool new_arena(meri_heap *h, unsigned c)
     return true;
 }
 
-/* the step of the blocks of class c in an arena, and its reciprocal:
-   for off < ARENA, (off * STEP_M(c)) >> 40 is off / STEP(c) exactly (the
-   error of the rounding, below 2^-20, never reaches the next multiple of
-   1 / STEP(c)): a check of every access without a division */
-#define STEP(c) (HEAD + 16 * ((uint64_t)(c) + 1))
-#define STEP_M(c) ((((uint64_t)1 << 40) + STEP(c) - 1) / STEP(c))
-_Static_assert(MERI_SLAB_CLASSES == 16, "step_m has one entry a class");
-static const uint64_t step_m[MERI_SLAB_CLASSES] = {
-    STEP_M(0),  STEP_M(1),  STEP_M(2),  STEP_M(3), STEP_M(4),  STEP_M(5),
-    STEP_M(6),  STEP_M(7),  STEP_M(8),  STEP_M(9), STEP_M(10), STEP_M(11),
-    STEP_M(12), STEP_M(13), STEP_M(14), STEP_M(15)};
-
-/* the header of the small block whose bytes begin at a, or NULL */
-static slot_head *small_head(const meri_heap *h, uintptr_t a)
-{
-    uintptr_t base = a & ~(ARENA - 1);
-    uint64_t step, off;
-    unsigned c;
-
-    if (!SLABS || !is_arena(h, base))
-        return NULL;
-    c = *(const uint32_t *)base;
-    step = STEP(c);
-    if (a < base + ARENA_HEAD + HEAD)
-        return NULL;
-    off = a - (base + ARENA_HEAD + HEAD);
-    if (((off * step_m[c]) >> 40) * step != off ||
-        a + 16 * ((uint64_t)c + 1) > base + ARENA)
-        return NULL;
-    return (slot_head *)(a - HEAD);
-}
-
 static uint64_t small_alloc(meri_heap *h, uint64_t n)
 {
     unsigned c = klass(n);
@@ -269,21 +229,15 @@ static uint64_t small_alloc(meri_heap *h, uint64_t n)
         if (h->tagged)
             s->gen++;
         s->live = 1;
-        memset(b, 0, size);
+        /* constant lengths in line for the commonest classes */
+        if (size == 16)
+            memset(b, 0, 16);
+        else if (size == 32)
+            memset(b, 0, 32);
+        else
+            memset(b, 0, size);
         return (uint64_t)(uintptr_t)b | (uint64_t)s->gen << MERI_ADDR_BITS;
     }
-}
-
-/* the header of the small block alive that v points to, or NULL */
-static slot_head *small_alive(const meri_heap *h, uint64_t v)
-{
-    slot_head *s = small_head(h, (uintptr_t)MERI_ADDR(v));
-
-    if (!s || !s->live ||
-        (h->tagged ? s->gen != (uint16_t)(v >> MERI_ADDR_BITS)
-                   : v >> MERI_ADDR_BITS != 0))
-        return NULL;
-    return s;
 }
 
 /* ---- both ---- */
@@ -338,9 +292,9 @@ bool meri_heap_free(meri_heap *h, uint64_t p, uint64_t *size)
     return true;
 }
 
-bool meri_heap_live(const meri_heap *h, uint64_t p)
+bool meri_heap_large_live(const meri_heap *h, uint64_t p)
 {
-    return p && (small_alive(h, p) || large_alive(h, p));
+    return large_alive(h, p) != NULL;
 }
 
 void meri_heap_clear(meri_heap *h)
