@@ -480,7 +480,6 @@ static void run(meri_state *s, const meri_fn *entry, void **globals,
 
 #define NEXT                                                                   \
     do {                                                                       \
-        ip = pc;                                                               \
         w = *pc++;                                                             \
         PROF(MERI_W_OP(w));                                                    \
         goto *disp[MERI_W_OP(w)];                                              \
@@ -527,6 +526,7 @@ op_MUL:
     RA = RB * RC;
     NEXT;
 op_ADDOV: {
+    ip = pc - 1;
     int64_t v;
     if (__builtin_add_overflow((int64_t)RB, (int64_t)RC, &v))
         TRAP(LIMBA_TRAP_OVERFLOW);
@@ -534,6 +534,7 @@ op_ADDOV: {
     NEXT;
 }
 op_SUBOV: {
+    ip = pc - 1;
     int64_t v;
     if (__builtin_sub_overflow((int64_t)RB, (int64_t)RC, &v))
         TRAP(LIMBA_TRAP_OVERFLOW);
@@ -541,6 +542,7 @@ op_SUBOV: {
     NEXT;
 }
 op_MULOV: {
+    ip = pc - 1;
     int64_t v;
     if (__builtin_mul_overflow((int64_t)RB, (int64_t)RC, &v))
         TRAP(LIMBA_TRAP_OVERFLOW);
@@ -548,6 +550,7 @@ op_MULOV: {
     NEXT;
 }
 op_SDIV: {
+    ip = pc - 1;
     int64_t a = (int64_t)RB, b = (int64_t)RC;
     if (!b || (a == INT64_MIN && b == -1))
         TRAP(LIMBA_TRAP_DIVZERO);
@@ -555,11 +558,13 @@ op_SDIV: {
     NEXT;
 }
 op_UDIV:
+    ip = pc - 1;
     if (!RC)
         TRAP(LIMBA_TRAP_DIVZERO);
     RA = RB / RC;
     NEXT;
 op_SREM: {
+    ip = pc - 1;
     int64_t a = (int64_t)RB, b = (int64_t)RC;
     if (!b || (a == INT64_MIN && b == -1))
         TRAP(LIMBA_TRAP_DIVZERO);
@@ -567,6 +572,7 @@ op_SREM: {
     NEXT;
 }
 op_UREM:
+    ip = pc - 1;
     if (!RC)
         TRAP(LIMBA_TRAP_DIVZERO);
     RA = RB % RC;
@@ -594,6 +600,7 @@ op_MUL32:
     RA = s32((uint64_t)((uint32_t)RB * (uint32_t)RC));
     NEXT;
 op_ADDOV32: {
+    ip = pc - 1;
     int64_t v = (int64_t)RB + (int64_t)RC;
     if (v < INT32_MIN || v > INT32_MAX)
         TRAP(LIMBA_TRAP_OVERFLOW);
@@ -601,6 +608,7 @@ op_ADDOV32: {
     NEXT;
 }
 op_SUBOV32: {
+    ip = pc - 1;
     int64_t v = (int64_t)RB - (int64_t)RC;
     if (v < INT32_MIN || v > INT32_MAX)
         TRAP(LIMBA_TRAP_OVERFLOW);
@@ -608,6 +616,7 @@ op_SUBOV32: {
     NEXT;
 }
 op_MULOV32: {
+    ip = pc - 1;
     int64_t v = (int64_t)RB * (int64_t)RC; /* two i32: no overflow */
     if (v < INT32_MIN || v > INT32_MAX)
         TRAP(LIMBA_TRAP_OVERFLOW);
@@ -615,6 +624,7 @@ op_MULOV32: {
     NEXT;
 }
 op_SDIV32: {
+    ip = pc - 1;
     int32_t a = (int32_t)RB, b = (int32_t)RC;
     if (!b || (a == INT32_MIN && b == -1))
         TRAP(LIMBA_TRAP_DIVZERO);
@@ -622,6 +632,7 @@ op_SDIV32: {
     NEXT;
 }
 op_UDIV32: {
+    ip = pc - 1;
     uint32_t a = (uint32_t)RB, b = (uint32_t)RC;
     if (!b)
         TRAP(LIMBA_TRAP_DIVZERO);
@@ -629,6 +640,7 @@ op_UDIV32: {
     NEXT;
 }
 op_SREM32: {
+    ip = pc - 1;
     int32_t a = (int32_t)RB, b = (int32_t)RC;
     if (!b || (a == INT32_MIN && b == -1))
         TRAP(LIMBA_TRAP_DIVZERO);
@@ -636,6 +648,7 @@ op_SREM32: {
     NEXT;
 }
 op_UREM32: {
+    ip = pc - 1;
     uint32_t a = (uint32_t)RB, b = (uint32_t)RC;
     if (!b)
         TRAP(LIMBA_TRAP_DIVZERO);
@@ -656,6 +669,7 @@ op_ASHR32:
     NEXT;
 
 op_INTN: {
+    ip = pc - 1;
     uint64_t v;
     int64_t c;
     x = *pc++;
@@ -891,6 +905,7 @@ op_MEMSET:
     memset((void *)(uintptr_t)MERI_ADDR(RA), (int)(uint8_t)RB, (size_t)RC);
     NEXT;
 op_RC: {
+    ip = pc - 1;
     int64_t n = (int64_t)RB;
     uint64_t size;
     x = *pc++;
@@ -934,14 +949,17 @@ op_RELSLOTS: {
 }
 
 op_CALL:
+    ip = pc - 1;
     callee = &p->fns[MERI_W_BX(w)];
     ca = MERI_W_A(w);
     goto call;
 op_CALLN:
+    ip = pc - 1;
     callee = &p->fns[MERI_W_BX(w)];
     ca = MERI_W_A(w);
     goto copy_args;
 op_CALLRTN:
+    ip = pc - 1;
     callee = NULL; /* a runtime function */
     ca = MERI_W_A(w);
 copy_args: {
@@ -965,10 +983,12 @@ copy_args: {
     NEXT;
 }
 op_CALLW:
+    ip = pc - 1;
     callee = &p->fns[MERI_W_BX(w)];
     ca = *pc++;
     goto call;
 op_CALLIW:
+    ip = pc - 1;
     ca = MERI_W_A(w) | MERI_W_C(w) << 8;
     goto calli;
 op_MOVEW:
@@ -976,6 +996,7 @@ op_MOVEW:
     base[x & 0xffff] = base[x >> 16];
     NEXT;
 op_CALLRTW:
+    ip = pc - 1;
     x = *pc++;
     if (!meri_rt_call(s, MERI_W_BX(w), &base[x])) {
         r->status = s->status;
@@ -984,6 +1005,7 @@ op_CALLRTW:
     }
     NEXT;
 op_CALLI:
+    ip = pc - 1;
     ca = MERI_W_A(w);
 calli: {
     uintptr_t v = (uintptr_t)RB, b0 = (uintptr_t)p->fns;
@@ -1019,6 +1041,7 @@ call: {
     NEXT;
 }
 op_CALLRT:
+    ip = pc - 1;
     PROF_RT(MERI_W_BX(w));
     if (!meri_rt_call(s, MERI_W_BX(w), &RA)) {
         r->status = s->status;
@@ -1027,6 +1050,7 @@ op_CALLRT:
     }
     NEXT;
 op_CALLX:
+    ip = pc - 1;
     r->status = MERI_UNSUPPORTED;
     goto stop;
 op_RET:
@@ -1074,8 +1098,10 @@ op_JFLT:
 op_JFLE:
     JUMP_IF(dv(RA) <= dv(RB), MERI_W_C(w));
 op_TRAP:
+    ip = pc - 1;
     TRAP((int64_t)k[MERI_W_BX(w)]);
 op_CHECK:
+    ip = pc - 1;
     if (!RA)
         TRAP((int64_t)k[MERI_W_BX(w)]);
     NEXT;
@@ -1116,10 +1142,12 @@ op_FMATH: {
     NEXT;
 }
 op_CHKLIVE:
+    ip = pc - 1;
     if (!meri_heap_live(&s->heap, RA))
         TRAP((int64_t)k[MERI_W_BX(w)]);
     NEXT;
 op_CHKR: {
+    ip = pc - 1;
     int64_t v = (int64_t)RA;
     x = *pc++;
     if (!((int64_t)RB <= v && v <= (int64_t)RC))
@@ -1127,6 +1155,7 @@ op_CHKR: {
     NEXT;
 }
 op_CHKRK: {
+    ip = pc - 1;
     int64_t v = (int64_t)RA;
     x = *pc++;
     if (!((int64_t)k[x] <= v && v <= (int64_t)k[x + 1]))
@@ -1223,6 +1252,7 @@ op_PUTB:
     fputc((int)(uint8_t)RA, s->env->out);
     NEXT;
 op_UNREACH:
+    ip = pc - 1;
     r->status = MERI_UNREACHABLE;
     goto stop;
 
