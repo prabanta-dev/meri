@@ -444,6 +444,22 @@ bool meri_alloc_regs(const limba_func *f, uint32_t max, uint32_t skip,
         }
     }
 
+    /* a copy lives in the register of its source: one interval for both.
+       Before the entry parameters enter the active list, so that one that
+       is the source of a copy enters it with its whole interval */
+    if (fu && fu->alias)
+        for (i = 0; i < f->ninsts; i++) {
+            uint32_t r0 = i;
+            if (fu->alias[i] == LIMBA_NONE || at[i] == UINT32_MAX)
+                continue;
+            while (fu->alias[r0] != LIMBA_NONE)
+                r0 = fu->alias[r0];
+            if (at[r0] == UINT32_MAX)
+                continue; /* the source has no register: keep its own */
+            widen(&iv[at[r0]], iv[at[i]].start);
+            widen(&iv[at[r0]], iv[at[i]].end);
+            iv[at[i]].start = UINT32_MAX; /* not given on its own */
+        }
     /* the parameters of the entry block take 0 .. n - 1, the convention
        of a call; they begin at 0 and come first in the order */
     for (k = 0; k < max; k++)
@@ -466,6 +482,8 @@ bool meri_alloc_regs(const limba_func *f, uint32_t max, uint32_t skip,
     for (i = 0; i < n; i++) {
         uint32_t v = iv[i].value, r;
 
+        if (iv[i].start == UINT32_MAX)
+            break; /* the copies, last after the sort: given below */
         if (a->reg[v] != MERI_NOREG)
             continue; /* an entry parameter, given already */
         for (k = 0; k < nactive;) {
@@ -508,6 +526,16 @@ bool meri_alloc_regs(const limba_func *f, uint32_t max, uint32_t skip,
         if (r + 1 > a->nregs)
             a->nregs = r + 1;
     }
+    if (fu && fu->alias)
+        for (i = 0; i < f->ninsts; i++) {
+            uint32_t r0 = i;
+            if (fu->alias[i] == LIMBA_NONE || at[i] == UINT32_MAX)
+                continue;
+            while (fu->alias[r0] != LIMBA_NONE)
+                r0 = fu->alias[r0];
+            if (at[r0] != UINT32_MAX) /* else it was given its own */
+                a->reg[i] = a->reg[r0];
+        }
     ok = true;
 done:
     live_free(&l);

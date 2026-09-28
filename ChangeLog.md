@@ -51,5 +51,11 @@
   before block 0, instead of on every pass through a loop; liveness sees
   them defined there. If the registers would not fit, the function is
   emitted without hoisting rather than wide.
+- Only the constants used on a cycle of the CFG are hoisted (a function
+  without loops, called often, loaded them all at every call); a copy
+  that changes no bit of a canonical value lives in the register of its
+  source; an addr folds into its load or store anywhere later in the
+  block; the blocks are laid out so that the way round a loop falls
+  through and its exits jump.
 - The repository: build script (it builds Limba first, in the same
   variant, and links every program with its library), licence, style.

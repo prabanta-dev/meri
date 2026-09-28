@@ -51,6 +51,10 @@ typedef struct {
     /* constants loaded once, before block 0: defined there for liveness,
        at the position 0; NULL, or no one, for none */
     uint8_t *hoist;
+    /* a copy that shares the register of its source (a conversion that
+       changes no bit of a canonical value), LIMBA_NONE for none; NULL for
+       none at all */
+    uint32_t *alias;
 } meri_fusion;
 
 /* give registers to the values of f, the parameters of block 0 first in
