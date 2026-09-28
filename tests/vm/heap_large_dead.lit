@@ -1,0 +1,19 @@
+; output: 10
+; result: 0
+; a large block alive is remembered by ptr_live, and forgotten when a
+; large block is freed: the same pointer is then dangling
+func @main : fn() -> i64 {
+b0:
+  v0 = iconst i64 1024
+  v1 = call.rt ptr mem_alloc(v0)
+  v2 = call.rt i1 ptr_live(v1)
+  v3 = zext i64 v2
+  call.rt void print_i64(v3)
+  call.rt void mem_free(v1)
+  v4 = call.rt i1 ptr_live(v1)
+  v5 = zext i64 v4
+  call.rt void print_i64(v5)
+  call.rt void print_nl()
+  v6 = iconst i64 0
+  ret v6
+}

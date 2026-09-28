@@ -51,6 +51,8 @@ typedef struct {
     uintptr_t *arena; /* a set of the arenas' bases, open addressing */
     uintptr_t last;   /* the base of the arena found last (arenas are
                          never freed before meri_heap_clear), or 0 */
+    uint64_t hit;     /* a pointer to a large block found alive last, or
+                         0: forgotten when a large block is freed */
     size_t capa, useda;
     void *freel[MERI_SLAB_CLASSES]; /* free blocks, linked in their bytes */
     uint8_t *bump[MERI_SLAB_CLASSES], *bump_end[MERI_SLAB_CLASSES];
@@ -156,13 +158,14 @@ static inline meri_slot_head *meri_small_alive(meri_heap *h, uint64_t v)
     return s;
 }
 
-bool meri_heap_large_live(const meri_heap *h, uint64_t p);
+bool meri_heap_large_live(meri_heap *h, uint64_t p);
 
 /* ptr_live: p is the pointer of a block alive (the small ones in line:
    the interpreter checks every access) */
 static inline bool meri_heap_live(meri_heap *h, uint64_t p)
 {
-    return p && (meri_small_alive(h, p) || meri_heap_large_live(h, p));
+    return p && (p == h->hit || meri_small_alive(h, p) ||
+                 meri_heap_large_live(h, p));
 }
 
 #endif

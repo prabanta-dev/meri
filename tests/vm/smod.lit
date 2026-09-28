@@ -1,0 +1,197 @@
+; output: 1
+; output: 2
+; output: -2
+; output: -1
+; output: 0
+; output: 0
+; output: 0
+; output: 1
+; output: -1
+; output: -1
+; output: -9223372036854775803
+; output: 1
+; output: 2
+; output: -2
+; output: -1
+; output: 1
+; output: -1
+; output: 0
+; output: 2
+; output: -2
+; output: -4
+; result: 0
+; the mod of Luxia as Limba writes it (srem, ne, xor, slt, and, add,
+; select) is one instruction (SMOD, SMOD32): every sign, the limits;
+; modx uses the srem once more, and modsub subtracts: neither is fused
+pos 1 "t.luxia" 3 7
+func @mod64 : fn(i64, i64) -> i64 {
+b0(v0: i64, v1: i64):
+  v2 = iconst i64 0
+  v3 = srem i64 v0, v1 !1
+  v4 = icmp.ne i1 v3, v2
+  v5 = xor i64 v3, v1
+  v6 = icmp.slt i1 v5, v2
+  v7 = and i1 v4, v6
+  v8 = add i64 v3, v1
+  v9 = select i64 v7, v8, v3
+  ret v9
+}
+
+func @mod32 : fn(i32, i32) -> i32 {
+b0(v0: i32, v1: i32):
+  v2 = iconst i32 0
+  v3 = srem i32 v0, v1 !1
+  v4 = icmp.ne i1 v3, v2
+  v5 = xor i32 v3, v1
+  v6 = icmp.slt i1 v5, v2
+  v7 = and i1 v4, v6
+  v8 = add i32 v3, v1
+  v9 = select i32 v7, v8, v3
+  ret v9
+}
+
+func @modx : fn(i64, i64) -> i64 {
+b0(v0: i64, v1: i64):
+  v2 = iconst i64 0
+  v3 = srem i64 v0, v1 !1
+  v4 = icmp.ne i1 v3, v2
+  v5 = xor i64 v3, v1
+  v6 = icmp.slt i1 v5, v2
+  v7 = and i1 v4, v6
+  v8 = add i64 v3, v1
+  v9 = select i64 v7, v8, v3
+  v10 = add i64 v9, v3
+  v11 = sub i64 v10, v3
+  ret v11
+}
+
+func @modsub : fn(i64, i64) -> i64 {
+b0(v0: i64, v1: i64):
+  v2 = iconst i64 0
+  v3 = srem i64 v0, v1 !1
+  v4 = icmp.ne i1 v3, v2
+  v5 = xor i64 v3, v1
+  v6 = icmp.slt i1 v5, v2
+  v7 = and i1 v4, v6
+  v8 = sub i64 v3, v1
+  v9 = select i64 v7, v8, v3
+  ret v9
+}
+
+func @main : fn() -> i64 {
+b0:
+  v0 = iconst i64 7
+  v1 = iconst i64 3
+  v2 = call i64 @mod64(v0, v1)
+  call.rt void print_i64(v2)
+  call.rt void print_nl()
+  v3 = iconst i64 -7
+  v4 = iconst i64 3
+  v5 = call i64 @mod64(v3, v4)
+  call.rt void print_i64(v5)
+  call.rt void print_nl()
+  v6 = iconst i64 7
+  v7 = iconst i64 -3
+  v8 = call i64 @mod64(v6, v7)
+  call.rt void print_i64(v8)
+  call.rt void print_nl()
+  v9 = iconst i64 -7
+  v10 = iconst i64 -3
+  v11 = call i64 @mod64(v9, v10)
+  call.rt void print_i64(v11)
+  call.rt void print_nl()
+  v12 = iconst i64 6
+  v13 = iconst i64 3
+  v14 = call i64 @mod64(v12, v13)
+  call.rt void print_i64(v14)
+  call.rt void print_nl()
+  v15 = iconst i64 -6
+  v16 = iconst i64 3
+  v17 = call i64 @mod64(v15, v16)
+  call.rt void print_i64(v17)
+  call.rt void print_nl()
+  v18 = iconst i64 0
+  v19 = iconst i64 5
+  v20 = call i64 @mod64(v18, v19)
+  call.rt void print_i64(v20)
+  call.rt void print_nl()
+  v21 = iconst i64 -9223372036854775808
+  v22 = iconst i64 3
+  v23 = call i64 @mod64(v21, v22)
+  call.rt void print_i64(v23)
+  call.rt void print_nl()
+  v24 = iconst i64 -9223372036854775808
+  v25 = iconst i64 -7
+  v26 = call i64 @mod64(v24, v25)
+  call.rt void print_i64(v26)
+  call.rt void print_nl()
+  v27 = iconst i64 9223372036854775807
+  v28 = iconst i64 -2
+  v29 = call i64 @mod64(v27, v28)
+  call.rt void print_i64(v29)
+  call.rt void print_nl()
+  v30 = iconst i64 5
+  v31 = iconst i64 -9223372036854775808
+  v32 = call i64 @mod64(v30, v31)
+  call.rt void print_i64(v32)
+  call.rt void print_nl()
+  v33 = iconst i32 7
+  v34 = iconst i32 3
+  v35 = call i32 @mod32(v33, v34)
+  v36 = sext i64 v35
+  call.rt void print_i64(v36)
+  call.rt void print_nl()
+  v37 = iconst i32 -7
+  v38 = iconst i32 3
+  v39 = call i32 @mod32(v37, v38)
+  v40 = sext i64 v39
+  call.rt void print_i64(v40)
+  call.rt void print_nl()
+  v41 = iconst i32 7
+  v42 = iconst i32 -3
+  v43 = call i32 @mod32(v41, v42)
+  v44 = sext i64 v43
+  call.rt void print_i64(v44)
+  call.rt void print_nl()
+  v45 = iconst i32 -7
+  v46 = iconst i32 -3
+  v47 = call i32 @mod32(v45, v46)
+  v48 = sext i64 v47
+  call.rt void print_i64(v48)
+  call.rt void print_nl()
+  v49 = iconst i32 -2147483648
+  v50 = iconst i32 3
+  v51 = call i32 @mod32(v49, v50)
+  v52 = sext i64 v51
+  call.rt void print_i64(v52)
+  call.rt void print_nl()
+  v53 = iconst i32 2147483647
+  v54 = iconst i32 -2
+  v55 = call i32 @mod32(v53, v54)
+  v56 = sext i64 v55
+  call.rt void print_i64(v56)
+  call.rt void print_nl()
+  v57 = iconst i32 -6
+  v58 = iconst i32 -3
+  v59 = call i32 @mod32(v57, v58)
+  v60 = sext i64 v59
+  call.rt void print_i64(v60)
+  call.rt void print_nl()
+  v61 = iconst i64 -7
+  v62 = iconst i64 3
+  v63 = call i64 @modx(v61, v62)
+  call.rt void print_i64(v63)
+  call.rt void print_nl()
+  v64 = iconst i64 7
+  v65 = iconst i64 -3
+  v66 = call i64 @modx(v64, v65)
+  call.rt void print_i64(v66)
+  call.rt void print_nl()
+  v67 = iconst i64 0
+  v68 = iconst i64 -7
+  v69 = iconst i64 3
+  v70 = call i64 @modsub(v68, v69)
+  call.rt void print_i64(v70)
+  call.rt void print_nl()
+  ret v67
+}

@@ -287,14 +287,18 @@ bool meri_heap_free(meri_heap *h, uint64_t p, uint64_t *size)
     if (!e)
         return false;
     e->live = 0;
+    h->hit = 0; /* it may be this one */
     *size = e->size;
     free((void *)e->addr);
     return true;
 }
 
-bool meri_heap_large_live(const meri_heap *h, uint64_t p)
+bool meri_heap_large_live(meri_heap *h, uint64_t p)
 {
-    return large_alive(h, p) != NULL;
+    if (!large_alive(h, p))
+        return false;
+    h->hit = p;
+    return true;
 }
 
 void meri_heap_clear(meri_heap *h)

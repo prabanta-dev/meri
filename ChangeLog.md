@@ -96,5 +96,9 @@
   and the classes whose step is a power of two check it with a mask; the
   budget is counted in line, and new small blocks of 16 and 32 bytes are
   zeroed in line. binary-trees: 23 % fewer cycles.
+- The pointer to a large block found alive last is remembered, and
+  forgotten when a large block is freed: k-nucleotide's table no longer
+  costs two lookups an access (24 % fewer cycles). The mod of Luxia,
+  seven instructions of the IR, is one (`SMOD`, `SMOD32`).
 - The repository: build script (it builds Limba first, in the same
   variant, and links every program with its library), licence, style.

@@ -246,3 +246,7 @@ MERI_OP(ALLOCK, "allock", MERI_FMT_ABx)
 MERI_OP(CALLND, "callnd", MERI_FMT_ABxND)
 /* mem_free R[A]: INVALID_FREE if it is not a block alive (0: nothing) */
 MERI_OP(FREE, "free", MERI_FMT_A)
+/* the mod of Luxia (the sign of the divisor): srem, then + R[C] when the
+   rest is not 0 and its sign differs from R[C]'s; DIVZERO as srem */
+MERI_OP(SMOD, "smod", MERI_FMT_ABC)
+MERI_OP(SMOD32, "smod32", MERI_FMT_ABC)

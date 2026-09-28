@@ -79,6 +79,7 @@ typedef struct {
     uint32_t *ccmp;        /* of a check: the icmp fused into it (CHKCC) */
     uint32_t *rsub;        /* of a range check: sub i, lo right after it */
     uint8_t *kop;    /* the operand taken as an immediate constant, or KNONE */
+    uint32_t *smod;  /* of a select: the srem of the mod it ends (SMOD) */
     uint32_t *npred; /* of each block: the jumps to it */
     fixup *fix;
     uint32_t nfix, capfix;
@@ -1406,6 +1407,67 @@ static bool addr_small(const L *l, uint32_t a)
     return addr_const(l, a, &off) && off <= 255;
 }
 
+/* v is among w[1] .. w[5], used once and not absorbed yet */
+static bool among(const L *l, const uint32_t *uses, const uint32_t *w,
+                  uint32_t v)
+{
+    uint32_t k;
+
+    for (k = 1; k <= 5; k++)
+        if (w[k] == v)
+            return uses[v] == 1 && !l->fu.absorbed[v];
+    return false;
+}
+
+/* the two operands of in are x and y, in either order */
+static bool pair(const limba_func *f, const limba_inst *in, uint32_t x,
+                 uint32_t y)
+{
+    const uint32_t *o = f->operands + in->first;
+
+    return (o[0] == x && o[1] == y) || (o[0] == y && o[1] == x);
+}
+
+/* the mod of Luxia as Limba writes it, seven instructions in a row:
+   r = srem a, b; n = icmp.ne r, 0; x = xor r, b; m = icmp.slt x, 0;
+   c = and n, m; t = add r, b; s = select c, t, r (the middle five in any
+   order, each used once; r used only by them) */
+static bool luxia_mod(const L *l, const uint32_t *uses, const uint32_t *w)
+{
+    const limba_func *f = l->f;
+    const limba_inst *r = &f->insts[w[0]], *s = &f->insts[w[6]];
+    const uint32_t *os = f->operands + s->first, *orr = f->operands + r->first;
+    const limba_inst *c, *t, *n, *m, *x;
+    const uint32_t *oc, *on, *om;
+    uint32_t b = orr[1];
+    unsigned bits = bits_of(r->type);
+
+    if (r->op != LIMBA_OP_SREM || (bits != 64 && bits != 32) ||
+        s->op != LIMBA_OP_SELECT || s->type != r->type || os[2] != w[0] ||
+        uses[w[0]] != 4 || l->fu.absorbed[w[0]] || l->fu.absorbed[w[6]] ||
+        !among(l, uses, w, os[0]) || !among(l, uses, w, os[1]))
+        return false;
+    c = &f->insts[os[0]], t = &f->insts[os[1]];
+    oc = f->operands + c->first;
+    if (c->op != LIMBA_OP_AND || t->op != LIMBA_OP_ADD || t->type != r->type ||
+        !pair(f, t, w[0], b) || !among(l, uses, w, oc[0]) ||
+        !among(l, uses, w, oc[1]))
+        return false;
+    n = &f->insts[oc[0]], m = &f->insts[oc[1]];
+    if (n->op != LIMBA_OP_ICMP || n->cc != LIMBA_CC_NE) {
+        const limba_inst *q = n;
+        n = m, m = q;
+    }
+    on = f->operands + n->first;
+    om = f->operands + m->first;
+    if (n->op != LIMBA_OP_ICMP || n->cc != LIMBA_CC_NE || on[0] != w[0] ||
+        !is_zero(f, on[1]) || m->op != LIMBA_OP_ICMP || m->cc != LIMBA_CC_SLT ||
+        !is_zero(f, om[1]) || !among(l, uses, w, om[0]))
+        return false;
+    x = &f->insts[om[0]];
+    return x->op == LIMBA_OP_XOR && x->type == r->type && pair(f, x, w[0], b);
+}
+
 /* v, a constant between lo and hi */
 static bool const_in(const limba_func *f, uint32_t v, int64_t lo, int64_t hi)
 {
@@ -1513,12 +1575,14 @@ static bool find_fusions(L *l)
     l->rsub = malloc(n * sizeof(uint32_t));
     l->done = calloc(n, 1);
     l->kop = malloc(n);
+    l->smod = malloc(n * sizeof(uint32_t));
     l->fu.hoist = calloc(n, 1);
     need = calloc(n, sizeof(uint32_t));
     seq = malloc(n * sizeof(uint32_t));
     if (!uses || !need || !seq || !l->fu.absorbed || !l->fu.anchor || !l->rlo ||
         !l->rhi || !l->ridx || !l->ldx || !l->fold || !l->nz || !l->tz ||
-        !l->ccmp || !l->rsub || !l->done || !l->kop || !l->fu.hoist) {
+        !l->ccmp || !l->rsub || !l->done || !l->kop || !l->smod ||
+        !l->fu.hoist) {
         free(uses);
         free(need);
         free(seq);
@@ -1542,6 +1606,7 @@ static bool find_fusions(L *l)
         l->ldx[i] = l->fold[i] = l->nz[i] = l->tz[i] = LIMBA_NONE;
         l->ccmp[i] = l->rsub[i] = LIMBA_NONE;
         l->kop[i] = KNONE;
+        l->smod[i] = LIMBA_NONE;
         for (s = 0; s < ns; s++)
             for (j = 0; j < sp[s].n; j++)
                 uses[sp[s].o[j]]++;
@@ -1669,6 +1734,13 @@ static bool find_fusions(L *l)
                 }
             }
         }
+        /* the mod of Luxia, seven in a row: SMOD */
+        for (i = 0; i + 6 < ns; i++)
+            if (luxia_mod(l, uses, seq + i)) {
+                l->smod[seq[i + 6]] = seq[i];
+                for (k2 = 0; k2 < 6; k2++)
+                    absorb(l, seq[i + k2], seq[i + 6]);
+            }
         if (!inloop[b])
             for (i = bl->nparams; i < bl->ninsts; i++)
                 l->kop[bl->insts[i]] = imm_operand(l, uses, bl, i);
@@ -1714,6 +1786,11 @@ static bool find_fusions(L *l)
             need[l->ridx[i]]++;
         if (l->nz[i] != LIMBA_NONE)
             need[l->nz[i]]++;
+        if (l->smod[i] != LIMBA_NONE) {
+            const uint32_t *om = f->operands + f->insts[l->smod[i]].first;
+            need[om[0]]++;
+            need[om[1]]++;
+        }
         if (l->ccmp[i] != LIMBA_NONE) {
             const uint32_t *oc = f->operands + f->insts[l->ccmp[i]].first;
             need[oc[0]]++;
@@ -2054,6 +2131,17 @@ static void inst_body(L *l, uint32_t id, uint32_t next)
             integer(l, in, a, use(l, o[0], 0), use(l, o[1], 1));
         return;
     case LIMBA_F_TERN: {
+        if (l->smod && l->smod[id] != LIMBA_NONE) {
+            /* the mod of Luxia; a trap where its srem is */
+            const limba_inst *ri = &f->insts[l->smod[id]];
+            const uint32_t *orr = f->operands + ri->first;
+            unsigned ra = use(l, orr[0], 0), rb = use(l, orr[1], 1);
+            l->cur = limba_inst_pos(f, l->smod[id]);
+            emit(l, meri_abc(bits_of(ri->type) == 64 ? MERI_OP_SMOD
+                                                     : MERI_OP_SMOD32,
+                             a, ra, rb));
+            return;
+        }
         /* the operands first: a MOVEW must not fall between the words */
         unsigned x = use(l, o[0], 0), y = use(l, o[1], 1), z = use(l, o[2], 2);
         if (in->op == LIMBA_OP_SELECT) {
@@ -2546,6 +2634,7 @@ static void function(meri_program *p, uint32_t fid, meri_diag *d)
     free(l.tz);
     free(l.ccmp);
     free(l.kop);
+    free(l.smod);
     free(l.rsub);
     free(l.done);
     free(l.at_of);

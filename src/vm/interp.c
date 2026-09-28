@@ -1421,6 +1421,28 @@ op_FREE: {
     meri_state_give(s, size);
     NEXT;
 }
+op_SMOD: {
+    int64_t a = (int64_t)RB, b = (int64_t)RC, m;
+    ip = pc - 1;
+    if (!b || (a == INT64_MIN && b == -1))
+        TRAP(LIMBA_TRAP_DIVZERO);
+    m = a % b;
+    if (m != 0 && (m ^ b) < 0)
+        m += b;
+    RA = (uint64_t)m;
+    NEXT;
+}
+op_SMOD32: {
+    int32_t a = (int32_t)RB, b = (int32_t)RC, m;
+    ip = pc - 1;
+    if (!b || (a == INT32_MIN && b == -1))
+        TRAP(LIMBA_TRAP_DIVZERO);
+    m = a % b;
+    if (m != 0 && (m ^ b) < 0)
+        m += b;
+    RA = (uint64_t)(int64_t)m;
+    NEXT;
+}
 op_PUTC: {
     uint32_t c = (uint32_t)RA;
     char b8[4];
