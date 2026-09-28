@@ -32,5 +32,13 @@
   the result goes back, and calls whose arguments begin past 255 take
   their base from a second word; the other instructions do not change.
   `tools/wide_lit.py` writes the case `tests/vm/wide.lit`.
+- Faster, same results: the allocator lets a result take the register of
+  an operand that dies in the same instruction, and gives a parameter of
+  a block the register of its arguments, so their copies vanish; small
+  blocks of `mem_alloc` come from arenas of one size class, with the same
+  generations and exact checks; `math_sqrt` and the other functions of
+  one real become instructions (`FSQRT`, `FMATH`), and `ptr_live` with
+  its check one instruction (`CHKLIVE`). Building with `-DMERI_PROFILE`
+  counts the instructions run, their pairs and the runtime calls.
 - The repository: build script (it builds Limba first, in the same
   variant, and links every program with its library), licence, style.

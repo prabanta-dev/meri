@@ -9,7 +9,12 @@
  * jump being uses at its terminator. Each value then gets one interval,
  * the hull of every point where it is alive: coarser than the exact
  * ranges, never smaller. Linear scan gives registers from the lowest free
- * one; two values share a register only if their intervals are disjoint.
+ * one; two values share a register only if their intervals are disjoint,
+ * or if one ends where the other begins: an instruction reads all its
+ * operands before it writes its result. Not a str that ends there: it is
+ * released from its register after the instruction. A parameter of a
+ * block and the arguments passed to it prefer the same register, so that
+ * their copy disappears.
  *
  * The copies of the arguments of a jump are written at the terminator of
  * the source, before the target block begins: a register they write may
@@ -285,6 +290,89 @@ static void find_fused(const limba_func *f, uint8_t *fused)
     free(uses);
 }
 
+/* the values a value would like to share its register with: the
+   parameters of a block and the arguments of the jumps to it, both ways;
+   hint[first[v] .. first[v + 1]) */
+typedef struct {
+    uint32_t *first, *hint;
+} hints;
+
+/* call f for each (parameter, argument) pair of every jump */
+static void each_pair(const limba_func *f,
+                      void (*fn)(void *, uint32_t, uint32_t), void *ctx)
+{
+    uint32_t b, e, j;
+
+    for (b = 0; b < f->nblocks; b++) {
+        const limba_block *bl = &f->blocks[b];
+        const limba_inst *t = &f->insts[bl->insts[bl->ninsts - 1]];
+        const uint32_t *o = f->operands + t->first;
+        uint32_t k[2], nk = 0;
+        if (t->op == LIMBA_OP_BR)
+            k[nk++] = 0;
+        else if (t->op == LIMBA_OP_CBR)
+            k[nk++] = 1, k[nk++] = 3 + o[2];
+        for (e = 0; e < nk; e++) {
+            const limba_block *to = &f->blocks[o[k[e]]];
+            for (j = 0; j < o[k[e] + 1]; j++)
+                fn(ctx, to->insts[j], o[k[e] + 2 + j]);
+        }
+    }
+}
+
+static void count_pair(void *ctx, uint32_t p, uint32_t a)
+{
+    uint32_t *deg = ctx;
+
+    deg[p]++;
+    deg[a]++;
+}
+
+typedef struct {
+    uint32_t *at, *hint;
+} filling;
+
+static void fill_pair(void *ctx, uint32_t p, uint32_t a)
+{
+    filling *fl = ctx;
+
+    fl->hint[fl->at[p]++] = a;
+    fl->hint[fl->at[a]++] = p;
+}
+
+static bool hints_make(const limba_func *f, hints *h)
+{
+    size_t n = (size_t)f->ninsts;
+    uint32_t *at = calloc(n + 1, sizeof(uint32_t)), i;
+    filling fl;
+
+    h->first = calloc(n + 1, sizeof(uint32_t));
+    h->hint = NULL;
+    if (!at || !h->first) {
+        free(at);
+        return false;
+    }
+    each_pair(f, count_pair, at); /* the degrees, for now */
+    for (i = 0; i < f->ninsts; i++)
+        h->first[i + 1] = h->first[i] + at[i];
+    h->hint = malloc(((size_t)h->first[n] + 1) * sizeof(uint32_t));
+    if (!h->hint) {
+        free(at);
+        return false;
+    }
+    memcpy(at, h->first, (n + 1) * sizeof(uint32_t));
+    fl = (filling){at, h->hint};
+    each_pair(f, fill_pair, &fl);
+    free(at);
+    return true;
+}
+
+static void hints_free(hints *h)
+{
+    free(h->first);
+    free(h->hint);
+}
+
 bool meri_alloc_regs(const limba_func *f, uint32_t max, uint32_t skip,
                      uint32_t nskip, meri_alloc *a)
 {
@@ -294,6 +382,7 @@ bool meri_alloc_regs(const limba_func *f, uint32_t max, uint32_t skip,
     uint32_t n = 0, nactive = 0, b, i, k, s, j;
     uint64_t *freeset = NULL; /* a bit for each register free */
     size_t nwords = ((size_t)max + 63) / 64, wi;
+    hints h = {0};
     bool ok = false;
 
     memset(a, 0, sizeof(*a));
@@ -304,7 +393,7 @@ bool meri_alloc_regs(const limba_func *f, uint32_t max, uint32_t skip,
     at = malloc(((size_t)f->ninsts + 1) * sizeof(uint32_t));
     freeset = calloc(nwords + 1, sizeof(uint64_t));
     if (!a->reg || !a->fused || !iv || !active || !at || !freeset ||
-        max > MERI_NOREG || !live_init(&l, f))
+        max > MERI_NOREG || !live_init(&l, f) || !hints_make(f, &h))
         goto done;
     live_solve(&l);
     find_fused(f, a->fused);
@@ -364,7 +453,16 @@ bool meri_alloc_regs(const limba_func *f, uint32_t max, uint32_t skip,
         if (a->reg[v] != MERI_NOREG)
             continue; /* an entry parameter, given already */
         for (k = 0; k < nactive;) {
-            if (active[k].end < iv[i].start) {
+            uint32_t av = active[k].value;
+            /* disjoint, or ending at the instruction that defines the
+               new one: its start must be its definition (not a point
+               where it is only alive, before a later definition in the
+               layout), and not the head of a block, where parameters
+               begin together */
+            if (active[k].end < iv[i].start ||
+                (active[k].end == iv[i].start && iv[i].start == l.pos[v] &&
+                 f->insts[av].type != LIMBA_T_STR &&
+                 f->insts[v].op != LIMBA_OP_PARAM)) {
                 r = a->reg[active[k].value];
                 freeset[r / 64] |= 1ull << (r % 64);
                 active[k] = active[--nactive];
@@ -372,13 +470,22 @@ bool meri_alloc_regs(const limba_func *f, uint32_t max, uint32_t skip,
                 k++;
             }
         }
-        for (wi = 0; wi < nwords && !freeset[wi]; wi++)
-            ;
-        if (wi == nwords)
-            goto done;
-        r = (uint32_t)(wi * 64) + (uint32_t)__builtin_ctzll(freeset[wi]);
-        if (r >= max)
-            goto done;
+        /* a register a related value has, if free; else the lowest */
+        r = max;
+        for (k = h.first[v]; k < h.first[v + 1] && r == max; k++) {
+            uint16_t q = a->reg[h.hint[k]];
+            if (q != MERI_NOREG && q < max && freeset[q / 64] >> (q % 64) & 1)
+                r = q;
+        }
+        if (r == max) {
+            for (wi = 0; wi < nwords && !freeset[wi]; wi++)
+                ;
+            if (wi == nwords)
+                goto done;
+            r = (uint32_t)(wi * 64) + (uint32_t)__builtin_ctzll(freeset[wi]);
+            if (r >= max)
+                goto done;
+        }
         freeset[r / 64] &= ~(1ull << (r % 64));
         a->reg[v] = (uint16_t)r;
         active[nactive++] = iv[i];
@@ -392,6 +499,7 @@ done:
     free(active);
     free(at);
     free(freeset);
+    hints_free(&h);
     return ok;
 }
 

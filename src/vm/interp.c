@@ -52,6 +52,67 @@ static void *reserve(size_t bytes)
     return p == MAP_FAILED ? NULL : p;
 }
 
+/* ---- the profile of a run (-DMERI_PROFILE, never in a release) ---- */
+
+#ifdef MERI_PROFILE
+static uint64_t prof_op[MERI_OP_COUNT];
+static uint64_t prof_pair[MERI_OP_COUNT][MERI_OP_COUNT];
+static uint64_t prof_rt[LIMBA_RT_COUNT];
+static unsigned prof_prev;
+#define PROF(op) (prof_op[op]++, prof_pair[prof_prev][op]++, prof_prev = (op))
+#define PROF_RT(id) (prof_rt[(id) < LIMBA_RT_COUNT ? (id) : 0]++)
+
+typedef struct {
+    uint64_t n;
+    unsigned a, b;
+} prof_row;
+
+static int prof_by_count(const void *x, const void *y)
+{
+    const prof_row *p = x, *q = y;
+    return p->n < q->n ? 1 : p->n > q->n ? -1 : 0;
+}
+
+/* the instructions executed, their pairs and the runtime calls, on
+   standard error */
+static void prof_dump(void)
+{
+    static prof_row rows[MERI_OP_COUNT * MERI_OP_COUNT];
+    uint64_t total = 0;
+    size_t n = 0, i;
+    unsigned a, b;
+
+    for (a = 0; a < MERI_OP_COUNT; a++)
+        total += prof_op[a];
+    fprintf(stderr, "profile: %llu instructions\n", (unsigned long long)total);
+    for (a = 0; a < MERI_OP_COUNT; a++)
+        if (prof_op[a])
+            rows[n++] = (prof_row){prof_op[a], a, 0};
+    qsort(rows, n, sizeof(*rows), prof_by_count);
+    for (i = 0; i < n && i < 40; i++)
+        fprintf(stderr, "op   %12llu %5.1f%%  %s\n",
+                (unsigned long long)rows[i].n, 100.0 * rows[i].n / total,
+                meri_ops[rows[i].a].text);
+    n = 0;
+    for (a = 0; a < MERI_OP_COUNT; a++)
+        for (b = 0; b < MERI_OP_COUNT; b++)
+            if (prof_pair[a][b])
+                rows[n++] = (prof_row){prof_pair[a][b], a, b};
+    qsort(rows, n, sizeof(*rows), prof_by_count);
+    for (i = 0; i < n && i < 40; i++)
+        fprintf(stderr, "pair %12llu %5.1f%%  %s %s\n",
+                (unsigned long long)rows[i].n, 100.0 * rows[i].n / total,
+                meri_ops[rows[i].a].text, meri_ops[rows[i].b].text);
+    for (a = 0; a < LIMBA_RT_COUNT; a++)
+        if (prof_rt[a])
+            fprintf(stderr, "rt   %12llu  %s\n", (unsigned long long)prof_rt[a],
+                    limba_rts[a].name);
+}
+#else
+#define PROF(op) ((void)0)
+#define PROF_RT(id) ((void)0)
+#endif
+
 /* ---- values ---- */
 
 static inline double dv(uint64_t v)
@@ -421,6 +482,7 @@ static void run(meri_state *s, const meri_fn *entry, void **globals,
     do {                                                                       \
         ip = pc;                                                               \
         w = *pc++;                                                             \
+        PROF(MERI_W_OP(w));                                                    \
         goto *disp[MERI_W_OP(w)];                                              \
     } while (0)
 #define RA base[MERI_W_A(w)]
@@ -930,6 +992,7 @@ call: {
     NEXT;
 }
 op_CALLRT:
+    PROF_RT(MERI_W_BX(w));
     if (!meri_rt_call(s, MERI_W_BX(w), &RA)) {
         r->status = s->status;
         r->code = s->code;
@@ -986,6 +1049,46 @@ op_TRAP:
     TRAP((int64_t)k[MERI_W_BX(w)]);
 op_CHECK:
     if (!RA)
+        TRAP((int64_t)k[MERI_W_BX(w)]);
+    NEXT;
+op_FSQRT:
+    RA = db(sqrt(dv(RB)));
+    NEXT;
+op_FMATH: {
+    double v = dv(RB);
+    switch (MERI_W_C(w)) {
+    case LIMBA_RT_MATH_SIN:
+        v = sin(v);
+        break;
+    case LIMBA_RT_MATH_COS:
+        v = cos(v);
+        break;
+    case LIMBA_RT_MATH_TAN:
+        v = tan(v);
+        break;
+    case LIMBA_RT_MATH_ATAN:
+        v = atan(v);
+        break;
+    case LIMBA_RT_MATH_EXP:
+        v = exp(v);
+        break;
+    case LIMBA_RT_MATH_LN:
+        v = log(v);
+        break;
+    case LIMBA_RT_MATH_TRUNC:
+        v = trunc(v);
+        break;
+    case LIMBA_RT_MATH_FLOOR:
+        v = floor(v);
+        break;
+    default: /* ceil */
+        v = ceil(v);
+    }
+    RA = db(v);
+    NEXT;
+}
+op_CHKLIVE:
+    if (!meri_heap_live(&s->heap, RA))
         TRAP((int64_t)k[MERI_W_BX(w)]);
     NEXT;
 op_UNREACH:
@@ -1050,6 +1153,9 @@ void meri_run(const meri_program *p, const char *entry, const meri_env *env,
     }
     for (i = 0; i < s.nstrs; i++)
         r->live_strings += s.strs[i]->rc != MERI_RC_IMMORTAL;
+#ifdef MERI_PROFILE
+    prof_dump();
+#endif
     meri_heap_clear(&s.heap);
     meri_state_free_strs(&s);
 }

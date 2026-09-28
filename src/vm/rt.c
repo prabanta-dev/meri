@@ -506,7 +506,7 @@ bool meri_rt_call(meri_state *s, uint32_t id, uint64_t *a)
 
     switch (id) {
     case LIMBA_RT_MEM_ALLOC: {
-        uint64_t n = a[0] ? a[0] : 1;
+        uint64_t n = meri_heap_charge(a[0]);
         if ((int64_t)a[0] < 0 || !meri_state_take(s, n))
             return meri_rt_trap(s, LIMBA_TRAP_NOMEM);
         a[0] = meri_heap_alloc(&s->heap, a[0]);

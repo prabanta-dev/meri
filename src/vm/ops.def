@@ -175,3 +175,8 @@ MERI_OP(CALLW, "callw", MERI_FMT_BxX)
 MERI_OP(CALLRTW, "call.rtw", MERI_FMT_BxX)
 /* the callee in R[B], the base A | C << 8, X its type */
 MERI_OP(CALLIW, "call.indw", MERI_FMT_ABC_X)
+
+/* runtime calls promoted to instructions (lower.c) */
+MERI_OP(FSQRT, "fsqrt", MERI_FMT_AB)   /* math_sqrt */
+MERI_OP(FMATH, "fmath", MERI_FMT_ABC)  /* the f64 -> f64 function C */
+MERI_OP(CHKLIVE, "chklive", MERI_FMT_ABx) /* ptr_live R[A], else trap K[Bx] */

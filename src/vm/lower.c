@@ -60,6 +60,8 @@ typedef struct {
     uint32_t *label; /* of each block */
     uint32_t block;  /* the block being emitted */
     meri_strplan sp; /* where the strings stop living */
+    uint32_t *chk;   /* of a ptr_live: the check fused with it, or NONE */
+    uint8_t *gone;   /* a check fused into the ptr_live before it */
     fixup *fix;
     uint32_t nfix, capfix;
 } L;
@@ -849,6 +851,77 @@ static uint32_t string_index(L *l, limba_id s)
     return p->nstrs++;
 }
 
+/* a runtime call of f64 -> f64 as an instruction of its own (FSQRT,
+   FMATH): no copies to the outgoing registers; false if in is not one */
+static bool math1(L *l, uint32_t id, const limba_inst *in)
+{
+    const uint32_t *o = l->f->operands + in->first;
+    unsigned d, x;
+
+    switch (in->imm) {
+    case LIMBA_RT_MATH_SQRT:
+    case LIMBA_RT_MATH_SIN:
+    case LIMBA_RT_MATH_COS:
+    case LIMBA_RT_MATH_TAN:
+    case LIMBA_RT_MATH_ATAN:
+    case LIMBA_RT_MATH_EXP:
+    case LIMBA_RT_MATH_LN:
+    case LIMBA_RT_MATH_TRUNC:
+    case LIMBA_RT_MATH_FLOOR:
+    case LIMBA_RT_MATH_CEIL:
+        break;
+    default:
+        return false;
+    }
+    if (in->nops != 1 || !meri_has_value(in) || in->imm > 255)
+        return false;
+    x = use(l, o[0], 0);
+    d = def(l, id);
+    if (in->imm == LIMBA_RT_MATH_SQRT)
+        emit(l, meri_abc(MERI_OP_FSQRT, d, x, 0));
+    else
+        emit(l, meri_abc(MERI_OP_FMATH, d, x, (unsigned)in->imm));
+    return true;
+}
+
+/* the ptr_live whose only use is the check right after it: fused */
+static bool find_chklive(L *l)
+{
+    const limba_func *f = l->f;
+    uint32_t *uses = calloc((size_t)f->ninsts + 1, sizeof(uint32_t));
+    uint32_t b, i, s, j;
+
+    l->chk = malloc(((size_t)f->ninsts + 1) * sizeof(uint32_t));
+    l->gone = calloc((size_t)f->ninsts + 1, 1);
+    if (!uses || !l->chk || !l->gone) {
+        free(uses);
+        return false;
+    }
+    for (i = 0; i < f->ninsts; i++) {
+        meri_span sp[3];
+        uint32_t ns = meri_value_spans(f, &f->insts[i], sp);
+        l->chk[i] = LIMBA_NONE;
+        for (s = 0; s < ns; s++)
+            for (j = 0; j < sp[s].n; j++)
+                uses[sp[s].o[j]]++;
+    }
+    for (b = 0; b < f->nblocks; b++) {
+        const limba_block *bl = &f->blocks[b];
+        for (i = bl->nparams; i + 1 < bl->ninsts; i++) {
+            uint32_t a = bl->insts[i], c = bl->insts[i + 1];
+            const limba_inst *x = &f->insts[a], *y = &f->insts[c];
+            if (x->op == LIMBA_OP_CALLRT && x->imm == LIMBA_RT_PTR_LIVE &&
+                y->op == LIMBA_OP_CHECK && f->operands[y->first] == a &&
+                uses[a] == 1) {
+                l->chk[a] = c;
+                l->gone[c] = 1;
+            }
+        }
+    }
+    free(uses);
+    return true;
+}
+
 static void inst_body(L *l, uint32_t id, uint32_t next)
 {
     const limba_func *f = l->f;
@@ -960,10 +1033,23 @@ static void inst_body(L *l, uint32_t id, uint32_t next)
                          in->op == LIMBA_OP_RELEASE));
         emit(l, (uint32_t)in->imm);
         return;
+    case LIMBA_F_CALL_RT:
+        if (math1(l, id, in))
+            return;
+        if (l->chk && l->chk[id] != LIMBA_NONE) {
+            /* ptr_live and its check: one instruction, where the check is */
+            uint32_t c = l->chk[id];
+            unsigned p0 = use(l, o[0], 0);
+            l->cur = limba_inst_pos(f, c);
+            emit(l, meri_abx(MERI_OP_CHKLIVE, p0,
+                             konst(l, (uint64_t)f->insts[c].imm)));
+            return;
+        }
+        call(l, id, in);
+        return;
     case LIMBA_F_CALL:
     case LIMBA_F_CALL_IND:
     case LIMBA_F_CALL_EXT:
-    case LIMBA_F_CALL_RT:
         call(l, id, in);
         return;
     case LIMBA_F_BR:
@@ -993,6 +1079,8 @@ static void inst_body(L *l, uint32_t id, uint32_t next)
         emit(l, meri_abx(MERI_OP_TRAP, 0, konst(l, (uint64_t)in->imm)));
         return;
     case LIMBA_F_CHECK:
+        if (l->gone && l->gone[id])
+            return; /* done by CHKLIVE */
         emit(l, meri_abx(MERI_OP_CHECK, use(l, o[0], 0),
                          konst(l, (uint64_t)in->imm)));
         return;
@@ -1117,6 +1205,12 @@ static void function(meri_program *p, uint32_t fid, meri_diag *d)
         meri_alloc_free(&l.al);
         return;
     }
+    if (body && !find_chklive(&l)) {
+        fail(&l, "out of memory");
+        p->failed = true;
+        meri_alloc_free(&l.al);
+        return;
+    }
     if (body && !meri_str_plan(f, &l.sp)) {
         fail(&l, "out of memory");
         p->failed = true;
@@ -1175,6 +1269,8 @@ static void function(meri_program *p, uint32_t fid, meri_diag *d)
     free(l.fix);
     meri_alloc_free(&l.al);
     meri_strplan_free(&l.sp);
+    free(l.chk);
+    free(l.gone);
     if (l.failed)
         p->failed = true;
 }
