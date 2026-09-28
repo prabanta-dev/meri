@@ -52,9 +52,16 @@ typedef struct {
        at the position 0; NULL, or no one, for none */
     uint8_t *hoist;
     /* a copy that shares the register of its source (a conversion that
-       changes no bit of a canonical value), LIMBA_NONE for none; NULL for
-       none at all */
+       changes no bit of a canonical value, an addr of displacement 0),
+       LIMBA_NONE for none; NULL for none at all. The source may be the
+       parameter of a block b, which the jumps to b write again: the copy
+       is dominated by b, so every path from the start of b to a use of
+       the copy passes its definition, and the copy is never alive where
+       b begins */
     uint32_t *alias;
+    /* the blocks in the order they are emitted, block 0 first; NULL for
+       the order of the IR. The intervals follow it */
+    const uint32_t *order;
 } meri_fusion;
 
 /* give registers to the values of f, the parameters of block 0 first in

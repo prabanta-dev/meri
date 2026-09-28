@@ -207,3 +207,9 @@ MERI_OP(CALLN, "calln", MERI_FMT_ABxN)
 MERI_OP(CALLRTN, "call.rtn", MERI_FMT_ABxN)
 /* print_char: the code point R[A] in UTF-8 */
 MERI_OP(PUTC, "putc", MERI_FMT_A)
+/* R[A] = R[B] + C: an address with a constant displacement */
+MERI_OP(ADDI, "addi", MERI_FMT_ABC)
+/* the end of a loop: if R[A] != R[B], R[A] += R[C] (modulo 2^64, or
+   2^32 sign-extended) and the JMP after it is taken; else it is skipped */
+MERI_OP(LOOP, "loop", MERI_FMT_ABCJ)
+MERI_OP(LOOP32, "loop32", MERI_FMT_ABCJ)

@@ -1,0 +1,38 @@
+; output: 4321 -5-3-11
+; result: 0
+; LOOP (lower.c) going down, by an add of -1, and LOOP32 going up by 2:
+; they stop at equality, not at an order, and add the step they are given
+; (the limits are not 0: a comparison with 0 becomes a TEST)
+func @main : fn() -> i64 {
+b0:
+  v0 = iconst i64 4
+  v1 = iconst i64 -1
+  v2 = iconst i64 0
+  v20 = iconst i64 1
+  br b1(v0)
+b1(v3: i64):
+  call.rt void print_i64(v3)
+  v4 = icmp.eq i1 v3, v20
+  cbr v4, b3, b2
+b2:
+  v5 = add i64 v3, v1
+  br b1(v5)
+b3:
+  v6 = iconst i32 32
+  call.rt void print_char(v6)
+  v7 = iconst i32 -5
+  v8 = iconst i32 2
+  v9 = iconst i32 1
+  br b4(v7)
+b4(v10: i32):
+  v11 = sext i64 v10
+  call.rt void print_i64(v11)
+  v12 = icmp.ne i1 v10, v9
+  cbr v12, b5, b6
+b5:
+  v13 = add i32 v10, v8
+  br b4(v13)
+b6:
+  call.rt void print_nl()
+  ret v2
+}

@@ -66,6 +66,13 @@ typedef struct {
     uint32_t *ldx;  /* of a load or store: the addr fused in, or NONE */
     uint32_t *fold; /* of an addr: the sub i, c folded in, or NONE */
     uint8_t *gone;  /* a check fused into the ptr_live before it */
+    uint32_t *nz;   /* of a check: x, when it checks ne x, 0 (then check x) */
+    uint32_t *tz;   /* of a comparison eq or ne x, 0 fused into its cbr: x */
+    const uint32_t *order; /* the blocks as emitted */
+    uint32_t *at_of;       /* of each block: its index in order */
+    uint32_t at;           /* the index of the block being emitted */
+    uint8_t *skip;         /* blocks emitted with the one before them */
+    uint32_t *npred;       /* of each block: the jumps to it */
     fixup *fix;
     uint32_t nfix, capfix;
 } L;
@@ -354,11 +361,29 @@ static void edge_code(L *l, const limba_inst *t, uint32_t k, uint32_t i,
     free(c);
 }
 
-/* true if edge i (arguments at operand k of t) needs code of its own */
+/* true if edge i (arguments at operand k of t, of block b) needs code of
+   its own: strings that die on it, or a copy between two registers. A
+   str argument needs a reference only if it is still alive after the
+   jump, where the parameter begins: then their registers differ */
+static bool edge_code_of(const L *l, uint32_t b, const limba_inst *t,
+                         uint32_t k, uint32_t i)
+{
+    const uint32_t *o = l->f->operands + t->first + k;
+    const limba_block *bl = &l->f->blocks[o[0]];
+    uint32_t j;
+
+    if (l->sp.edge[l->sp.edge_at[b] + i].n)
+        return true;
+    for (j = 0; j < o[1]; j++)
+        if (l->al.reg[bl->insts[j]] != l->al.reg[o[2 + j]])
+            return true;
+    return false;
+}
+
 static bool edge_has_code(const L *l, const limba_inst *t, uint32_t k,
                           uint32_t i)
 {
-    return l->f->operands[t->first + k + 1] != 0 || edge_deaths(l, i)->n;
+    return edge_code_of(l, l->block, t, k, i);
 }
 
 /* ---- comparisons ---- */
@@ -452,7 +477,12 @@ static uint32_t branch(L *l, const limba_inst *t, bool when, uint32_t b)
     uint32_t c = l->f->operands[t->first];
     unsigned op, x, y, k;
 
-    if (l->al.fused[c]) {
+    if (l->al.fused[c] && l->tz && l->tz[c] != LIMBA_NONE) {
+        /* eq or ne x, 0: TEST jumps when (x != 0) is its B */
+        bool ne = l->f->insts[c].cc == LIMBA_CC_NE;
+        emit(l,
+             meri_abc(MERI_OP_TEST, use(l, l->tz[c], 0), ne ? when : !when, 0));
+    } else if (l->al.fused[c]) {
         const limba_inst *ci = &l->f->insts[c];
         const uint32_t *o = l->f->operands + ci->first;
         limba_id ot = l->f->insts[o[0]].type;
@@ -791,12 +821,103 @@ static void call(L *l, uint32_t id, const limba_inst *in)
         move(l, reg(l, id), a);
 }
 
+/* the first block after the one being emitted that is emitted itself */
+static uint32_t next_block(const L *l)
+{
+    uint32_t k;
+
+    for (k = l->at + 1; k < l->f->nblocks; k++)
+        if (!l->skip[l->order[k]])
+            return l->order[k];
+    return LIMBA_NONE;
+}
+
+/* the end of a loop, as LOOP or LOOP32: cbr t on eq or ne x, y, where
+   the way on while x != y is a block of its own, not yet emitted, that
+   only this jump enters, whose code is nothing but x2 = add x, s and a
+   jump with no code to a block h (x2 in the register of x). Emitted: LOOP x, y,
+   s and a JMP to h; then the other way, if its edge has code, and a jump to its
+   block if it does not follow. The block of the add is skipped */
+static bool loop_end(L *l, const limba_inst *t)
+{
+    const limba_func *f = l->f;
+    const uint32_t *o = f->operands + t->first;
+    uint32_t c = o[0], ek = 3 + o[2], tb = o[1], eb = o[ek];
+    uint32_t go, stay, gk, gi, xk, xi, add = LIMBA_NONE, br = LIMBA_NONE, x, y,
+                                       sv, h, nx, i, n = 0;
+    const limba_inst *ci = &f->insts[c], *ai, *bi;
+    const uint32_t *oc = f->operands + ci->first, *oa;
+    const limba_block *gb;
+    unsigned bits, op;
+
+    if (l->wide || !l->al.fused[c] || (l->tz && l->tz[c] != LIMBA_NONE) ||
+        ci->op != LIMBA_OP_ICMP ||
+        (ci->cc != LIMBA_CC_EQ && ci->cc != LIMBA_CC_NE))
+        return false;
+    /* go: the way on (x != y), stay: the other */
+    if (ci->cc == LIMBA_CC_EQ)
+        go = eb, gk = ek, gi = 1, stay = tb, xk = 1, xi = 0;
+    else
+        go = tb, gk = 1, gi = 0, stay = eb, xk = ek, xi = 1;
+    gb = &f->blocks[go];
+    if (go == stay || go == l->block || l->npred[go] != 1 ||
+        l->at_of[go] <= l->at || gb->nparams ||
+        edge_code_of(l, l->block, t, gk, gi) || l->sp.start[go].n)
+        return false;
+    /* its instructions but the constants loaded before block 0 and those
+       no one needs */
+    for (i = 0; i < gb->ninsts; i++) {
+        uint32_t v = gb->insts[i];
+        if ((l->fu.hoist && l->fu.hoist[v]) || l->fu.absorbed[v])
+            continue;
+        if (n == 0)
+            add = v;
+        else
+            br = v;
+        n++;
+    }
+    if (n != 2)
+        return false;
+    ai = &f->insts[add], bi = &f->insts[br];
+    oa = f->operands + ai->first;
+    if (ai->op != LIMBA_OP_ADD || bi->op != LIMBA_OP_BR || l->sp.after[add].n ||
+        edge_code_of(l, go, bi, 0, 0))
+        return false;
+    bits = bits_of(ai->type);
+    if (bits != 64 && bits != 32)
+        return false;
+    op = bits == 64 ? MERI_OP_LOOP : MERI_OP_LOOP32;
+    if (oa[0] == oc[0] || oa[0] == oc[1])
+        x = oa[0], sv = oa[1];
+    else if (oa[1] == oc[0] || oa[1] == oc[1])
+        x = oa[1], sv = oa[0];
+    else
+        return false;
+    y = x == oc[0] ? oc[1] : oc[0];
+    if (reg(l, add) != reg(l, x) || f->insts[x].type != ai->type)
+        return false;
+    h = f->operands[bi->first];
+    l->skip[go] = 1;
+    l->cur = limba_inst_pos(f, add);
+    emit(l, meri_abc(op, reg(l, x), reg(l, y), reg(l, sv)));
+    jump_to(l, h);
+    l->cur = limba_inst_pos(f, c);
+    edge_code(l, t, xk, xi, &stay);
+    nx = next_block(l);
+    if (stay != nx)
+        jump_to(l, stay);
+    return true;
+}
+
 static void cbr(L *l, const limba_inst *t, uint32_t next)
 {
     const uint32_t *o = l->f->operands + t->first;
     uint32_t tk = 1, ek = 3 + o[2], tb = o[1], eb = o[ek], i;
-    bool tc = edge_has_code(l, t, tk, 0), ec = edge_has_code(l, t, ek, 1);
+    bool tc, ec;
 
+    if (loop_end(l, t))
+        return;
+    tc = edge_has_code(l, t, tk, 0), ec = edge_has_code(l, t, ek, 1);
     if (!tc && !ec) {
         if (tb == next) {
             branch(l, t, false, eb);
@@ -1122,6 +1243,61 @@ static bool range_check(const limba_func *f, const uint32_t *uses,
     return false;
 }
 
+/* the constant 0 of an integer or pointer type (iconst 0, null) */
+static bool is_zero(const limba_func *f, uint32_t v)
+{
+    return (is_const(f, v) && const_of(f, v) == 0) ||
+           f->insts[v].op == LIMBA_OP_NULLV;
+}
+
+/* ne x, 0 used once, by the check right after it: *x */
+static bool nonzero_check(const limba_func *f, const uint32_t *uses,
+                          const uint32_t *w, uint32_t *x)
+{
+    const limba_inst *z = &f->insts[w[0]], *c = &f->insts[w[1]];
+    const uint32_t *oz = f->operands + z->first;
+
+    if (z->op != LIMBA_OP_ICMP || z->cc != LIMBA_CC_NE || uses[w[0]] != 1 ||
+        c->op != LIMBA_OP_CHECK || f->operands[c->first] != w[0])
+        return false;
+    if (is_zero(f, oz[1]))
+        *x = oz[0];
+    else if (is_zero(f, oz[0]))
+        *x = oz[1];
+    else
+        return false;
+    return true;
+}
+
+/* addr a whose index (after a folded sub i, c) is a constant: its
+   displacement from the base, modulo 2^64, in *off; false otherwise */
+static bool addr_const(const L *l, uint32_t a, uint64_t *off)
+{
+    const limba_func *f = l->f;
+    const limba_inst *ai = &f->insts[a];
+    const uint32_t *oa = f->operands + ai->first;
+    uint64_t scale = (uint64_t)ai->imm, disp = (uint64_t)ai->imm2;
+    uint32_t idx = oa[1];
+
+    if (l->fold[a] != LIMBA_NONE) {
+        const uint32_t *ot = f->operands + f->insts[l->fold[a]].first;
+        idx = ot[0];
+        disp -= (uint64_t)const_of(f, ot[1]) * scale;
+    }
+    if (!is_const(f, idx))
+        return false;
+    *off = (uint64_t)const_of(f, idx) * scale + disp;
+    return true;
+}
+
+/* addr a as base + a displacement of 0..255 (ld, st, addi) */
+static bool addr_small(const L *l, uint32_t a)
+{
+    uint64_t off;
+
+    return addr_const(l, a, &off) && off <= 255;
+}
+
 static bool absorb(L *l, uint32_t v, uint32_t anchor)
 {
     l->fu.absorbed[v] = 1;
@@ -1148,11 +1324,14 @@ static bool find_fusions(L *l)
     l->ridx = malloc(n * sizeof(uint32_t));
     l->ldx = malloc(n * sizeof(uint32_t));
     l->fold = malloc(n * sizeof(uint32_t));
+    l->nz = malloc(n * sizeof(uint32_t));
+    l->tz = malloc(n * sizeof(uint32_t));
     l->fu.hoist = calloc(n, 1);
     need = calloc(n, sizeof(uint32_t));
     seq = malloc(n * sizeof(uint32_t));
     if (!uses || !need || !seq || !l->fu.absorbed || !l->fu.anchor || !l->rlo ||
-        !l->rhi || !l->ridx || !l->ldx || !l->fold || !l->fu.hoist) {
+        !l->rhi || !l->ridx || !l->ldx || !l->fold || !l->nz || !l->tz ||
+        !l->fu.hoist) {
         free(uses);
         free(need);
         free(seq);
@@ -1173,7 +1352,7 @@ static bool find_fusions(L *l)
         meri_span sp[3];
         uint32_t ns = meri_value_spans(f, &f->insts[i], sp);
         l->fu.anchor[i] = l->rlo[i] = l->rhi[i] = l->ridx[i] = LIMBA_NONE;
-        l->ldx[i] = l->fold[i] = LIMBA_NONE;
+        l->ldx[i] = l->fold[i] = l->nz[i] = l->tz[i] = LIMBA_NONE;
         for (s = 0; s < ns; s++)
             for (j = 0; j < sp[s].n; j++)
                 uses[sp[s].o[j]]++;
@@ -1195,6 +1374,31 @@ static bool find_fusions(L *l)
                 absorb(l, w[0], w[3]);
                 absorb(l, w[1], w[3]);
                 absorb(l, w[2], w[3]);
+            }
+        }
+        /* check (ne x, 0): check x */
+        for (i = 0; i + 1 < ns; i++) {
+            uint32_t x;
+            if (!l->fu.absorbed[seq[i]] && !l->fu.absorbed[seq[i + 1]] &&
+                nonzero_check(f, uses, seq + i, &x)) {
+                l->nz[seq[i + 1]] = x;
+                absorb(l, seq[i], seq[i + 1]);
+            }
+        }
+        /* cbr (eq or ne x, 0), the comparison right before it and used
+           only there (fused into it: lower_live.c): test x */
+        if (bl->ninsts >= 2 && bl->ninsts - 2 >= bl->nparams) {
+            uint32_t t = bl->insts[bl->ninsts - 1],
+                     c = bl->insts[bl->ninsts - 2];
+            const limba_inst *ci = &f->insts[c];
+            const uint32_t *oc = f->operands + ci->first;
+            if (f->insts[t].op == LIMBA_OP_CBR && ci->op == LIMBA_OP_ICMP &&
+                (ci->cc == LIMBA_CC_EQ || ci->cc == LIMBA_CC_NE) &&
+                uses[c] == 1 && f->operands[f->insts[t].first] == c) {
+                if (is_zero(f, oc[1]))
+                    l->tz[c] = oc[0];
+                else if (is_zero(f, oc[0]))
+                    l->tz[c] = oc[1];
             }
         }
         /* an addr used once, by a load or store later in the block */
@@ -1247,6 +1451,14 @@ static bool find_fusions(L *l)
         uint32_t ns;
         if (l->fu.absorbed[i])
             continue;
+        if (l->tz[i] != LIMBA_NONE) { /* not the 0 */
+            need[l->tz[i]]++;
+            continue;
+        }
+        if (f->insts[i].op == LIMBA_OP_ADDR && addr_small(l, i)) {
+            need[f->operands[f->insts[i].first]]++; /* the base alone */
+            continue;
+        }
         ns = meri_value_spans(f, &f->insts[i], sp);
         for (s = 0; s < ns; s++)
             for (j = 0; j < sp[s].n; j++)
@@ -1259,6 +1471,8 @@ static bool find_fusions(L *l)
         }
         if (l->ridx[i] != LIMBA_NONE)
             need[l->ridx[i]]++;
+        if (l->nz[i] != LIMBA_NONE)
+            need[l->nz[i]]++;
         if (l->ldx[i] != LIMBA_NONE) {
             const limba_inst *ai = &f->insts[l->ldx[i]];
             const uint32_t *oa = f->operands + ai->first;
@@ -1266,7 +1480,8 @@ static bool find_fusions(L *l)
                               ? f->operands[f->insts[l->fold[l->ldx[i]]].first]
                               : oa[1];
             need[oa[0]]++;
-            need[ix]++;
+            if (!addr_small(l, l->ldx[i]))
+                need[ix]++;
         }
         if (f->insts[i].op == LIMBA_OP_ADDR && l->fold[i] != LIMBA_NONE)
             need[f->operands[f->insts[l->fold[i]].first]]++;
@@ -1289,23 +1504,29 @@ static bool find_fusions(L *l)
                     l->fu.hoist[sp[s].o[j]] = 2; /* wanted */
     }
     for (i = 0; i < f->ninsts; i++) {
-        if (is_const(f, i) && uses[i] && !need[i])
+        if ((is_const(f, i) || f->insts[i].op == LIMBA_OP_NULLV) && uses[i] &&
+            !need[i])
             absorb(l, i, LIMBA_NONE);
         l->fu.hoist[i] = hoist && l->fu.hoist[i] == 2 && hoistable(f, i) &&
                          !l->fu.absorbed[i];
     }
-    /* copies in the register of their source (not a parameter of a block
-       but block 0's: those are written again by the jumps) */
+    /* copies in the register of their source (the allocator refuses the
+       parameter of a block the jumps enter while the copy is alive) */
     for (i = 0; i < f->ninsts; i++) {
         const limba_inst *in = &f->insts[i];
         uint32_t src;
+        uint64_t off;
+        if (in->op == LIMBA_OP_ADDR && !l->fu.absorbed[i] &&
+            addr_const(l, i, &off) && off == 0) {
+            l->fu.alias[i] = f->operands[in->first];
+            continue;
+        }
         if (in->op != LIMBA_OP_SEXT && in->op != LIMBA_OP_ZEXT &&
             in->op != LIMBA_OP_INTTOPTR && in->op != LIMBA_OP_PTRTOINT &&
             in->op != LIMBA_OP_BITCAST)
             continue;
         src = f->operands[in->first];
-        if (l->fu.absorbed[i] || !pure_copy(f, in) ||
-            (f->insts[src].op == LIMBA_OP_PARAM && f->insts[src].block != 0))
+        if (l->fu.absorbed[i] || !pure_copy(f, in))
             continue;
         l->fu.alias[i] = src;
     }
@@ -1377,8 +1598,21 @@ static bool indexed(L *l, uint32_t id, const limba_inst *in, unsigned a)
     uint32_t base, idx, kx;
     unsigned rb, ri, rv;
 
+    uint64_t off;
+
     if (!l->ldx || l->ldx[id] == LIMBA_NONE)
         return false;
+    if (addr_const(l, l->ldx[id], &off) && off <= 255) {
+        /* base + a constant: the displacement of ld, st */
+        base = l->f->operands[l->f->insts[l->ldx[id]].first];
+        rb = use(l, base, 1);
+        if (in->op == LIMBA_OP_LOAD)
+            emit(l, meri_abc(load_op(in->type), a, rb, (unsigned)off));
+        else
+            emit(l, meri_abc(store_op(l->f->insts[o[0]].type), use(l, o[0], 0),
+                             rb, (unsigned)off));
+        return true;
+    }
     addr_parts(l, l->ldx[id], &base, &idx, &kx);
     rb = use(l, base, 1);
     ri = use(l, idx, 2);
@@ -1540,6 +1774,16 @@ static void inst_body(L *l, uint32_t id, uint32_t next)
     case LIMBA_F_ADDR: {
         uint32_t base, idx, kx;
         unsigned rb, ri;
+        uint64_t off;
+        if (addr_const(l, id, &off) && off <= 255) {
+            /* in the register of the base (fu.alias) if off is 0 */
+            rb = use(l, o[0], 0);
+            if (off)
+                emit(l, meri_abc(MERI_OP_ADDI, a, rb, (unsigned)off));
+            else
+                move(l, a, rb);
+            return;
+        }
         addr_parts(l, id, &base, &idx, &kx);
         rb = use(l, base, 0);
         ri = use(l, idx, 1);
@@ -1617,8 +1861,11 @@ static void inst_body(L *l, uint32_t id, uint32_t next)
             return; /* done by CHKLIVE */
         if (range(l, id, in))
             return;
-        emit(l, meri_abx(MERI_OP_CHECK, use(l, o[0], 0),
-                         konst(l, (uint64_t)in->imm)));
+        emit(l,
+             meri_abx(
+                 MERI_OP_CHECK,
+                 use(l, l->nz && l->nz[id] != LIMBA_NONE ? l->nz[id] : o[0], 0),
+                 konst(l, (uint64_t)in->imm)));
         return;
     case LIMBA_F_PARAM:
         return;
@@ -1673,48 +1920,56 @@ static void layout_slots(L *l, meri_fn *fn)
             fn->rel_slots[fn->nrel_slots++] = s;
 }
 
-/* the order of the blocks in the code: block 0, then each time a
-   successor of the last one not yet placed, the one that stays in the
-   same loop first (the way round a loop falls through, the exits jump);
-   else the first block not yet placed. false when memory is exhausted */
+/* the order of the blocks in the code: the reverse postorder of a depth
+   first walk from block 0, so that a block where paths join comes after
+   the blocks that lead to it (the ends of a loop, where it jumps back,
+   last in it). The walk takes the successors that leave the loop of the
+   block first, so that they come after it, the loop whole before them;
+   the others from the last, so that the first falls through. Blocks no
+   path reaches follow, in the order of the IR. false when memory is
+   exhausted */
 static bool layout(const limba_func *f, uint32_t *order)
 {
-    uint32_t nb = f->nblocks, k, b, low = 0;
-    uint8_t *placed = calloc(nb + 1, 1), *inloop = calloc(nb + 1, 1);
+    uint32_t nb = f->nblocks, k, b, top, n = 0;
+    uint8_t *seen = calloc(nb + 1, 1), *inloop = calloc(nb + 1, 1);
     uint32_t *comp = malloc((nb + 1) * sizeof(uint32_t));
+    uint32_t *stack = malloc((nb + 1) * sizeof(uint32_t));
+    uint32_t *next = malloc((nb + 1) * sizeof(uint32_t)); /* 2 passes */
+    uint32_t *post = malloc((nb + 1) * sizeof(uint32_t));
+    bool ok = false;
 
-    if (!placed || !inloop || !comp || !loop_blocks(f, inloop, comp)) {
-        free(placed), free(inloop), free(comp);
-        return false;
-    }
-    order[0] = 0;
-    placed[0] = 1;
-    for (k = 1; k < nb; k++) {
-        uint32_t cur = order[k - 1], pick = LIMBA_NONE, i,
-                 n = meri_nsuccs(f, cur);
-        for (i = 0; i < n && i < 2; i++) {
-            uint32_t s2 = meri_succ(f, cur, i);
-            if (placed[s2])
-                continue;
-            if (pick == LIMBA_NONE ||
-                (comp[s2] == comp[cur] && comp[pick] != comp[cur]))
-                pick = s2;
+    if (!seen || !inloop || !comp || !stack || !next || !post ||
+        !loop_blocks(f, inloop, comp))
+        goto done;
+    stack[0] = 0, next[0] = 0, top = 1, seen[0] = 1;
+    while (top) {
+        uint32_t v = stack[top - 1], ns = meri_nsuccs(f, v), w = LIMBA_NONE;
+        /* step i of 2 * ns: first the successors out of v's component,
+           then those in it, each pass from the last successor */
+        while (next[top - 1] < 2 * ns && w == LIMBA_NONE) {
+            uint32_t step = next[top - 1]++, pass = step / ns;
+            uint32_t s2 = meri_succ(f, v, ns - 1 - step % ns);
+            if (!seen[s2] && (comp[s2] != comp[v]) == (pass == 0))
+                w = s2;
         }
-        if (pick == LIMBA_NONE) {
-            while (placed[low])
-                low++;
-            pick = low;
+        if (w == LIMBA_NONE) {
+            post[n++] = v;
+            top--;
+            continue;
         }
-        order[k] = pick;
-        placed[pick] = 1;
+        seen[w] = 1;
+        stack[top] = w, next[top] = 0, top++;
     }
+    for (k = 0; k < n; k++)
+        order[k] = post[n - 1 - k];
     for (b = 0; b < nb; b++)
-        if (!placed[b]) { /* cannot be: every block was placed */
-            free(placed), free(inloop), free(comp);
-            return false;
-        }
-    free(placed), free(inloop), free(comp);
-    return true;
+        if (!seen[b])
+            order[n++] = b;
+    ok = n == nb && order[0] == 0;
+done:
+    free(seen), free(inloop), free(comp);
+    free(stack), free(next), free(post);
+    return ok;
 }
 
 /* the most arguments a call of f passes (1 at least if f calls: the
@@ -1800,21 +2055,34 @@ static void function(meri_program *p, uint32_t fid, meri_diag *d)
         p->failed = true;
         return;
     }
+    if (body) {
+        order = malloc(((size_t)f->nblocks + 1) * sizeof(uint32_t));
+        if (!order || !layout(f, order)) {
+            fail(&l, "out of memory");
+            p->failed = true;
+            free(order);
+            return;
+        }
+        l.fu.order = order;
+    }
     if (body && !registers(&l, fn->nparams)) {
         p->failed = true;
         meri_alloc_free(&l.al);
+        free(order);
         return;
     }
     if (body && !find_chklive(&l)) {
         fail(&l, "out of memory");
         p->failed = true;
         meri_alloc_free(&l.al);
+        free(order);
         return;
     }
     if (body && !meri_str_plan(f, &l.sp)) {
         fail(&l, "out of memory");
         p->failed = true;
         meri_alloc_free(&l.al);
+        free(order);
         return;
     }
     if (!body) {
@@ -1849,13 +2117,26 @@ static void function(meri_program *p, uint32_t fid, meri_diag *d)
             load_const(&l, def(&l, i), v);
             done(&l);
         }
-        order = malloc(((size_t)f->nblocks + 1) * sizeof(uint32_t));
-        if (!order || !layout(f, order))
+        l.order = order;
+        l.at_of = malloc(((size_t)f->nblocks + 1) * sizeof(uint32_t));
+        l.skip = calloc((size_t)f->nblocks + 1, 1);
+        l.npred = calloc((size_t)f->nblocks + 1, sizeof(uint32_t));
+        if (!l.at_of || !l.skip || !l.npred)
             fail(&l, "out of memory");
         for (k = 0; k < f->nblocks && !l.failed; k++) {
+            uint32_t ns = meri_nsuccs(f, k), j;
+            l.at_of[order[k]] = k;
+            for (j = 0; j < ns; j++)
+                l.npred[meri_succ(f, k, j)]++;
+        }
+        for (k = 0; k < f->nblocks && !l.failed; k++) {
             const limba_block *bl = &f->blocks[order[k]];
-            uint32_t next = k + 1 < f->nblocks ? order[k + 1] : LIMBA_NONE;
+            uint32_t next;
             b = order[k];
+            if (l.skip[b])
+                continue; /* emitted with the block that jumps to it */
+            l.at = k;
+            next = next_block(&l);
             l.block = b;
             l.label[b] = l.ncode;
             release_list(&l, &l.sp.start[b]);
@@ -1901,6 +2182,11 @@ static void function(meri_program *p, uint32_t fid, meri_diag *d)
     free(l.ridx);
     free(l.ldx);
     free(l.fold);
+    free(l.nz);
+    free(l.tz);
+    free(l.at_of);
+    free(l.skip);
+    free(l.npred);
     if (l.failed)
         p->failed = true;
 }

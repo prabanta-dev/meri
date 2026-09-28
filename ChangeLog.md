@@ -61,5 +61,14 @@
   `CALLRTN`: their registers follow it, four to a word) instead of a
   move each; a function without slots costs nothing to the memory budget
   when called; `print_char` is an instruction (`PUTC`).
+- The end of a loop, compare, add and jump back, is one instruction
+  (`LOOP`, `LOOP32`) when the sum goes where the counter was and the jump
+  copies nothing; the blocks are laid out in reverse postorder, the exits
+  of a loop after it, and liveness numbers them in that order, so fewer
+  copies are left. A check of `ne x, 0` is a check of x; a branch on
+  `eq` or `ne` with 0 is a `TEST`; an address at a constant index is the
+  displacement of its load or store, `ADDI`, or the register of its base;
+  a copy may share the register of any parameter of a block. Instructions
+  run: from -13 % (k-nucleotide) to -22 % (binary-trees).
 - The repository: build script (it builds Limba first, in the same
   variant, and links every program with its library), licence, style.

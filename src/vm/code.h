@@ -33,6 +33,7 @@ enum meri_fmt {
     /* A Bx, then the arguments: a word with their number n in its low
        byte and up to 3 registers, then words of 4 registers */
     MERI_FMT_ABxN,
+    MERI_FMT_ABCJ, /* A B C, then a JMP */
 };
 
 enum meri_op {

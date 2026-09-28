@@ -1,0 +1,18 @@
+; output: 7
+; trap: 43
+; check (ne x, 0) is check x in Meri (lower.c); check (eq x, 0) is not,
+; and must stop when x is not 0
+func @main : fn() -> i64 {
+b0:
+  v0 = iconst i64 0
+  v1 = iconst i64 7
+  v2 = icmp.ne i1 v1, v0
+  check v2, 41
+  call.rt void print_i64(v1)
+  call.rt void print_nl()
+  v3 = icmp.eq i1 v0, v0
+  check v3, 42
+  v4 = icmp.eq i1 v1, v0
+  check v4, 43
+  ret v0
+}

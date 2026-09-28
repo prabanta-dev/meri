@@ -3,15 +3,15 @@
 /*
  * lower_live.c - which values are alive where, and a register for each.
  *
- * The blocks are laid out in the order of the IR, the instructions
- * numbered one after the other; the parameters of a block are defined at
- * its first number. Liveness is solved on the blocks, the arguments of a
- * jump being uses at its terminator. Each value then gets one interval,
- * the hull of every point where it is alive: coarser than the exact
- * ranges, never smaller. Linear scan gives registers from the lowest free
- * one; two values share a register only if their intervals are disjoint,
- * or if one ends where the other begins: an instruction reads all its
- * operands before it writes its result. Not a str that ends there: it is
+ * The blocks are laid out in the order they are emitted (the order of the
+ * IR if none is given), the instructions numbered one after the other;
+ * the parameters of a block are defined at its first number. Liveness is solved
+ * on the blocks, the arguments of a jump being uses at its terminator. Each
+ * value then gets one interval, the hull of every point where it is alive:
+ * coarser than the exact ranges, never smaller. Linear scan gives registers
+ * from the lowest free one; two values share a register only if their intervals
+ * are disjoint, or if one ends where the other begins: an instruction reads all
+ * its operands before it writes its result. Not a str that ends there: it is
  * released from its register after the instruction. A parameter of a
  * block and the arguments passed to it prefer the same register, so that
  * their copy disappears.
@@ -145,10 +145,12 @@ static bool set_has(const uint64_t *s, uint32_t v)
 }
 
 /* hoist: the values defined before block 0 instead of where they are
-   (lower.c), or NULL */
-static bool live_init(live *l, const limba_func *f, const uint8_t *hoist)
+   (lower.c), or NULL; order: the blocks in the order of the numbers, or
+   NULL for the order of the IR */
+static bool live_init(live *l, const limba_func *f, const uint8_t *hoist,
+                      const uint32_t *order)
 {
-    uint32_t b, k, p = 0;
+    uint32_t b, k, p = 0, ob;
     size_t n;
 
     l->f = f;
@@ -169,11 +171,14 @@ static bool live_init(live *l, const limba_func *f, const uint8_t *hoist)
             if (hoist[k])
                 set_add(l->def, k); /* the defs of block 0 */
 
-    for (b = 0; b < f->nblocks; b++) {
-        const limba_block *bl = &f->blocks[b];
-        uint64_t *use = set_of(l->use, l->words, b);
-        uint64_t *def = set_of(l->def, l->words, b);
+    for (ob = 0; ob < f->nblocks; ob++) {
+        const limba_block *bl;
+        uint64_t *use, *def;
 
+        b = order ? order[ob] : ob;
+        bl = &f->blocks[b];
+        use = set_of(l->use, l->words, b);
+        def = set_of(l->def, l->words, b);
         l->bstart[b] = p++;
         for (k = 0; k < bl->ninsts; k++) {
             uint32_t id = bl->insts[k], s, j;
@@ -403,7 +408,8 @@ bool meri_alloc_regs(const limba_func *f, uint32_t max, uint32_t skip,
     at = malloc(((size_t)f->ninsts + 1) * sizeof(uint32_t));
     freeset = calloc(nwords + 1, sizeof(uint64_t));
     if (!a->reg || !a->fused || !iv || !active || !at || !freeset ||
-        max > MERI_NOREG || !live_init(&l, f, fu ? fu->hoist : NULL) ||
+        max > MERI_NOREG ||
+        !live_init(&l, f, fu ? fu->hoist : NULL, fu ? fu->order : NULL) ||
         !hints_make(f, &h))
         goto done;
     live_solve(&l);
@@ -600,7 +606,7 @@ bool meri_str_plan(const limba_func *f, meri_strplan *p)
     p->edge_at = calloc((size_t)f->nblocks + 1, sizeof(uint32_t));
     p->edge = calloc((size_t)nedges + 1, sizeof(meri_list));
     if (!p->after || !p->start || !p->at_ret || !p->edge_at || !p->edge ||
-        !live_init(&l, f, NULL))
+        !live_init(&l, f, NULL, NULL))
         goto done;
     live_solve(&l);
     now = calloc(l.words, sizeof(uint64_t));

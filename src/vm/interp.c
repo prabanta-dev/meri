@@ -1230,6 +1230,25 @@ op_STRPTR:
 op_STRLEN:
     RA = meri_str_of(RB)->len;
     NEXT;
+op_ADDI:
+    RA = RB + MERI_W_C(w);
+    NEXT;
+op_LOOP:
+    if (RA != RB) {
+        RA += RC;
+        pc += 1 + MERI_W_SJ(*pc);
+        NEXT;
+    }
+    pc++;
+    NEXT;
+op_LOOP32:
+    if (RA != RB) {
+        RA = s32(RA + RC);
+        pc += 1 + MERI_W_SJ(*pc);
+        NEXT;
+    }
+    pc++;
+    NEXT;
 op_PUTC: {
     uint32_t c = (uint32_t)RA;
     char b8[4];
