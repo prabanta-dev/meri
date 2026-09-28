@@ -1467,6 +1467,29 @@ op_FMUL3R:
     x = *pc++;
     RA = db(dv(base[x]) * (dv(RB) * dv(RC)));
     NEXT;
+op_LOOPD:
+    if (RA != RB) {
+        RA -= RC;
+        pc += 1 + MERI_W_SJ(*pc);
+        NEXT;
+    }
+    pc++;
+    NEXT;
+op_LOOPD32:
+    if (RA != RB) {
+        RA = s32(RA - RC);
+        pc += 1 + MERI_W_SJ(*pc);
+        NEXT;
+    }
+    pc++;
+    NEXT;
+op_LDU8:
+    RA = *(const uint8_t *)(uintptr_t)MERI_ADDR(RB + MERI_W_C(w));
+    NEXT;
+op_LDXU8:
+    x = *pc++;
+    RA = *(const uint8_t *)(uintptr_t)MERI_ADDR(RB + RC * k[x] + k[x + 1]);
+    NEXT;
 op_PUTC: {
     uint32_t c = (uint32_t)RA;
     char b8[4];

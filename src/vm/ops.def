@@ -259,3 +259,10 @@ MERI_OP(FMSUB, "fmsub", MERI_FMT_ABC_X)
 MERI_OP(FMSUBR, "fmsubr", MERI_FMT_ABC_X)
 MERI_OP(FMUL3, "fmul3", MERI_FMT_ABC_X)
 MERI_OP(FMUL3R, "fmul3r", MERI_FMT_ABC_X)
+/* the end of a loop going down: as LOOP, LOOP32, R[A] -= R[C] */
+MERI_OP(LOOPD, "loopd", MERI_FMT_ABCJ)
+MERI_OP(LOOPD32, "loopd32", MERI_FMT_ABCJ)
+/* a load of i8 zero-extended (the zext its only use): at R[B] + C, and
+   at R[B] + R[C] * K[X] + K[X + 1] */
+MERI_OP(LDU8, "ldu8", MERI_FMT_ABC)
+MERI_OP(LDXU8, "ldxu8", MERI_FMT_ABC_X)

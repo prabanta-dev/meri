@@ -83,6 +83,7 @@ typedef struct {
     uint32_t *fwd;  /* of a load: the value stored there right before */
     uint32_t *fpm;  /* of an f64 fadd, fsub, fmul: the fmul fused in */
     uint32_t *base_of; /* of an addr folded into its loads and stores */
+    uint32_t *zld;     /* of a zext: the load of i8 right before it */
     uint32_t *npred;   /* of each block: the jumps to it */
     fixup *fix;
     uint32_t nfix, capfix;
@@ -889,10 +890,11 @@ static uint32_t next_block(const L *l)
 
 /* the end of a loop, as LOOP or LOOP32: cbr t on eq or ne x, y, where
    the way on while x != y is a block of its own, not yet emitted, that
-   only this jump enters, whose code is nothing but x2 = add x, s and a
-   jump with no code to a block h (x2 in the register of x). Emitted: LOOP x, y,
-   s and a JMP to h; then the other way, if its edge has code, and a jump to its
-   block if it does not follow. The block of the add is skipped */
+   only this jump enters, whose code is nothing but x2 = add x, s (or
+   x2 = sub x, s: LOOPD, LOOPD32) and a jump with no code to a block h
+   (x2 in the register of x). Emitted: the LOOP and a JMP to h; then the
+   other way, if its edge has code, and a jump to its block if it does
+   not follow. The block of the add is skipped */
 static bool loop_end(L *l, const limba_inst *t)
 {
     const limba_func *f = l->f;
@@ -935,16 +937,20 @@ static bool loop_end(L *l, const limba_inst *t)
         return false;
     ai = &f->insts[add], bi = &f->insts[br];
     oa = f->operands + ai->first;
-    if (ai->op != LIMBA_OP_ADD || bi->op != LIMBA_OP_BR || l->sp.after[add].n ||
+    if ((ai->op != LIMBA_OP_ADD && ai->op != LIMBA_OP_SUB) ||
+        bi->op != LIMBA_OP_BR || l->sp.after[add].n ||
         edge_code_of(l, go, bi, 0, 0))
         return false;
     bits = bits_of(ai->type);
     if (bits != 64 && bits != 32)
         return false;
-    op = bits == 64 ? MERI_OP_LOOP : MERI_OP_LOOP32;
+    if (ai->op == LIMBA_OP_SUB) /* x - s, going down: LOOPD */
+        op = bits == 64 ? MERI_OP_LOOPD : MERI_OP_LOOPD32;
+    else
+        op = bits == 64 ? MERI_OP_LOOP : MERI_OP_LOOP32;
     if (oa[0] == oc[0] || oa[0] == oc[1])
         x = oa[0], sv = oa[1];
-    else if (oa[1] == oc[0] || oa[1] == oc[1])
+    else if (ai->op == LIMBA_OP_ADD && (oa[1] == oc[0] || oa[1] == oc[1]))
         x = oa[1], sv = oa[0];
     else
         return false;
@@ -1553,6 +1559,26 @@ static bool absorb(L *l, uint32_t v, uint32_t anchor)
     return true;
 }
 
+/* the values the address of load ld needs, counted: its own operand, or
+   those of the addr fused into it (find_fusions) */
+static void need_load_addr(L *l, uint32_t *need, uint32_t ld)
+{
+    const limba_func *f = l->f;
+
+    if (l->ldx[ld] != LIMBA_NONE) {
+        const limba_inst *ai = &f->insts[l->ldx[ld]];
+        const uint32_t *oa = f->operands + ai->first;
+        uint32_t ix = l->fold[l->ldx[ld]] != LIMBA_NONE
+                          ? f->operands[f->insts[l->fold[l->ldx[ld]]].first]
+                          : oa[1];
+        need[oa[0]]++;
+        if (!addr_small(l, l->ldx[ld]))
+            need[ix]++;
+    } else {
+        need[f->operands[f->insts[ld].first]]++;
+    }
+}
+
 /* the addrs of find_fusions folded into their loads and stores; false
    when memory is exhausted */
 static bool fold_addrs(L *l, const uint32_t *uses)
@@ -1624,13 +1650,14 @@ static bool find_fusions(L *l)
     l->fwd = malloc(n * sizeof(uint32_t));
     l->fpm = malloc(n * sizeof(uint32_t));
     l->base_of = malloc(n * sizeof(uint32_t));
+    l->zld = malloc(n * sizeof(uint32_t));
     l->fu.hoist = calloc(n, 1);
     need = calloc(n, sizeof(uint32_t));
     seq = malloc(n * sizeof(uint32_t));
     if (!uses || !need || !seq || !l->fu.absorbed || !l->fu.anchor || !l->rlo ||
         !l->rhi || !l->ridx || !l->ldx || !l->fold || !l->nz || !l->tz ||
         !l->ccmp || !l->rsub || !l->done || !l->kop || !l->smod || !l->fwd ||
-        !l->fpm || !l->base_of || !l->fu.hoist) {
+        !l->fpm || !l->base_of || !l->zld || !l->fu.hoist) {
         free(uses);
         free(need);
         free(seq);
@@ -1655,6 +1682,7 @@ static bool find_fusions(L *l)
         l->ccmp[i] = l->rsub[i] = LIMBA_NONE;
         l->kop[i] = KNONE;
         l->smod[i] = l->fwd[i] = l->fpm[i] = l->base_of[i] = LIMBA_NONE;
+        l->zld[i] = LIMBA_NONE;
         for (s = 0; s < ns; s++)
             for (j = 0; j < sp[s].n; j++)
                 uses[sp[s].o[j]]++;
@@ -1795,6 +1823,22 @@ static bool find_fusions(L *l)
                 !l->fu.absorbed[seq[i + 1]])
                 l->fwd[seq[i + 1]] = so[0];
         }
+        /* a load of i8 used once, by the zext right after it: a load
+           zero-extended (LDU8, LDXU8), where the zext is */
+        for (i = 0; i + 1 < ns; i++) {
+            uint32_t ld = seq[i], z = seq[i + 1];
+            const limba_inst *li = &f->insts[ld], *zi = &f->insts[z];
+            if (!is_load(li) || li->type != LIMBA_T_I8 || uses[ld] != 1 ||
+                l->fu.absorbed[ld] || l->fwd[ld] != LIMBA_NONE ||
+                zi->op != LIMBA_OP_ZEXT || f->operands[zi->first] != ld ||
+                l->fu.absorbed[z])
+                continue;
+            l->zld[z] = ld;
+            absorb(l, ld, z);
+            for (k2 = 0; k2 < f->ninsts; k2++) /* its addr, its sub */
+                if (l->fu.absorbed[k2] && l->fu.anchor[k2] == ld)
+                    l->fu.anchor[k2] = z;
+        }
         /* an f64 fmul used once, by an fadd, fsub or fmul later in the
            block (not one with an fmul in it already): FMADD... Pure, so
            computed where its user is */
@@ -1892,12 +1936,14 @@ static bool find_fusions(L *l)
             need[om[0]]++;
             need[om[1]]++;
         }
+        if (l->zld[i] != LIMBA_NONE)
+            need_load_addr(l, need, l->zld[i]);
         if (l->ccmp[i] != LIMBA_NONE) {
             const uint32_t *oc = f->operands + f->insts[l->ccmp[i]].first;
             need[oc[0]]++;
             need[oc[1]]++;
         }
-        if (l->ldx[i] != LIMBA_NONE) {
+        if (l->ldx[i] != LIMBA_NONE && !l->fu.absorbed[i]) {
             const limba_inst *ai = &f->insts[l->ldx[i]];
             const uint32_t *oa = f->operands + ai->first;
             uint32_t ix = l->fold[l->ldx[i]] != LIMBA_NONE
@@ -2177,6 +2223,34 @@ static bool chknl(L *l, uint32_t id, const limba_inst *in)
     return true;
 }
 
+/* load of i8 ld, zero-extended, into R[a]: its address as it would be
+   emitted (an addr fused in, folded, or a register) */
+static void zero_load(L *l, uint32_t ld, unsigned a)
+{
+    const limba_func *f = l->f;
+    uint32_t p = f->operands[f->insts[ld].first], base, idx, kx;
+    uint64_t off;
+
+    if (l->ldx[ld] != LIMBA_NONE && addr_const(l, l->ldx[ld], &off) &&
+        off <= 255) {
+        base = f->operands[f->insts[l->ldx[ld]].first];
+        emit(l, meri_abc(MERI_OP_LDU8, a, use(l, base, 1), (unsigned)off));
+    } else if (l->ldx[ld] != LIMBA_NONE) {
+        unsigned rb, ri;
+        addr_parts(l, l->ldx[ld], &base, &idx, &kx);
+        rb = use(l, base, 1);
+        ri = use(l, idx, 2);
+        emit(l, meri_abc(MERI_OP_LDXU8, a, rb, ri));
+        emit(l, kx);
+    } else if (l->base_of && l->base_of[p] != LIMBA_NONE) {
+        addr_const(l, p, &off);
+        emit(l, meri_abc(MERI_OP_LDU8, a, use(l, l->base_of[p], 1),
+                         (unsigned)off));
+    } else {
+        emit(l, meri_abc(MERI_OP_LDU8, a, use(l, p, 1), 0));
+    }
+}
+
 static void inst_body(L *l, uint32_t id, uint32_t next)
 {
     const limba_func *f = l->f;
@@ -2283,6 +2357,10 @@ static void inst_body(L *l, uint32_t id, uint32_t next)
                     use(l, o[1], 1));
         return;
     case LIMBA_F_CONV:
+        if (l->zld && l->zld[id] != LIMBA_NONE) {
+            zero_load(l, l->zld[id], a);
+            return;
+        }
         convert(l, in, a, use(l, o[0], 0));
         return;
     case LIMBA_F_LOAD:
@@ -2630,7 +2708,7 @@ static void function(meri_program *p, uint32_t fid, meri_diag *d)
     meri_fn *fn = &p->fns[fid];
     L l = {.m = p->m, .f = f, .p = p, .fid = fid, .d = d, .fn = fn};
     bool body = f->nblocks > 0; /* declared only: calling it is unreachable */
-    uint32_t b, i, k, *order = NULL;
+    uint32_t b, i, k, *order = NULL, *pend = NULL, npend = 0;
 
     fn->type = f->type;
     fn->nparams = p->m->types[f->type].count;
@@ -2705,6 +2783,9 @@ static void function(meri_program *p, uint32_t fid, meri_diag *d)
             load_const(&l, def(&l, i), v);
             done(&l);
         }
+        pend = malloc(((size_t)f->ninsts + 1) * sizeof(uint32_t));
+        if (!pend)
+            fail(&l, "out of memory");
         l.order = order;
         l.at_of = malloc(((size_t)f->nblocks + 1) * sizeof(uint32_t));
         l.skip = calloc((size_t)f->nblocks + 1, 1);
@@ -2729,12 +2810,29 @@ static void function(meri_program *p, uint32_t fid, meri_diag *d)
             l.label[b] = l.ncode;
             release_list(&l, &l.sp.start[b]);
             for (i = bl->nparams; i < bl->ninsts; i++) {
-                uint32_t id = bl->insts[i];
+                uint32_t id = bl->insts[i], q;
                 l.ii = i;
                 inst(&l, id, next);
-                if (i + 1 < bl->ninsts)
+                if (i + 1 == bl->ninsts)
+                    break;
+                /* the strings that die at an instruction emitted later,
+                   with the one it is fused into, die after that one: its
+                   operands are read there (their registers too) */
+                if (l.fu.absorbed[id] && l.fu.anchor[id] != LIMBA_NONE &&
+                    l.sp.after[id].n)
+                    pend[npend++] = id;
+                else
                     release_list(&l, &l.sp.after[id]);
+                for (q = 0; q < npend;)
+                    if (l.fu.anchor[pend[q]] == id) {
+                        release_list(&l, &l.sp.after[pend[q]]);
+                        pend[q] = pend[--npend];
+                    } else {
+                        q++;
+                    }
             }
+            if (npend)
+                fail(&l, "strings released past the end of block %" PRIu32, b);
         }
         for (i = 0; i < l.nfix && !l.failed; i++) {
             uint32_t to = l.fix[i].block == LIMBA_NONE
@@ -2757,6 +2855,7 @@ static void function(meri_program *p, uint32_t fid, meri_diag *d)
     fn->nk = l.nk;
     free(l.label);
     free(order);
+    free(pend);
     free(l.fix);
     meri_alloc_free(&l.al);
     meri_strplan_free(&l.sp);
@@ -2779,6 +2878,7 @@ static void function(meri_program *p, uint32_t fid, meri_diag *d)
     free(l.fwd);
     free(l.fpm);
     free(l.base_of);
+    free(l.zld);
     free(l.rsub);
     free(l.done);
     free(l.at_of);
