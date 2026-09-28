@@ -180,3 +180,23 @@ MERI_OP(CALLIW, "call.indw", MERI_FMT_ABC_X)
 MERI_OP(FSQRT, "fsqrt", MERI_FMT_AB)   /* math_sqrt */
 MERI_OP(FMATH, "fmath", MERI_FMT_ABC)  /* the f64 -> f64 function C */
 MERI_OP(CHKLIVE, "chklive", MERI_FMT_ABx) /* ptr_live R[A], else trap K[Bx] */
+
+/* fusions of lower.c: a range check (trap X, or B, unless lo <= R[A] <= hi,
+   signed; lo, hi in R[B], R[C] or in K[X], K[X + 1]) */
+MERI_OP(CHKR, "chkr", MERI_FMT_ABC_X)
+MERI_OP(CHKRK, "chkrk", MERI_FMT_ABC_X)
+/* load R[A] and store R[A] at R[B] + R[C] * K[X] + K[X + 1] */
+MERI_OP(LDX1, "ldx1", MERI_FMT_ABC_X)
+MERI_OP(LDX8, "ldx8", MERI_FMT_ABC_X)
+MERI_OP(LDX16, "ldx16", MERI_FMT_ABC_X)
+MERI_OP(LDX32, "ldx32", MERI_FMT_ABC_X)
+MERI_OP(LDXF32, "ldxf32", MERI_FMT_ABC_X)
+MERI_OP(LDX64, "ldx64", MERI_FMT_ABC_X)
+MERI_OP(STX8, "stx8", MERI_FMT_ABC_X)
+MERI_OP(STX16, "stx16", MERI_FMT_ABC_X)
+MERI_OP(STX32, "stx32", MERI_FMT_ABC_X)
+MERI_OP(STX64, "stx64", MERI_FMT_ABC_X)
+/* str_ptr, str_len, print_byte */
+MERI_OP(STRPTR, "strptr", MERI_FMT_AB)
+MERI_OP(STRLEN, "strlen", MERI_FMT_AB)
+MERI_OP(PUTB, "putb", MERI_FMT_A)

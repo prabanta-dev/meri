@@ -374,7 +374,7 @@ static void hints_free(hints *h)
 }
 
 bool meri_alloc_regs(const limba_func *f, uint32_t max, uint32_t skip,
-                     uint32_t nskip, meri_alloc *a)
+                     uint32_t nskip, const meri_fusion *fu, meri_alloc *a)
 {
     live l = {0};
     interval *iv = NULL, *active = NULL;
@@ -401,6 +401,8 @@ bool meri_alloc_regs(const limba_func *f, uint32_t max, uint32_t skip,
     for (i = 0; i < f->ninsts; i++) {
         a->reg[i] = MERI_NOREG;
         at[i] = UINT32_MAX;
+        if (fu && fu->absorbed[i])
+            a->fused[i] = 1; /* no register, as a fused comparison */
         if (meri_has_value(&f->insts[i]) && !a->fused[i]) {
             at[i] = n;
             iv[n++] = (interval){l.pos[i], l.pos[i], i};
@@ -413,7 +415,10 @@ bool meri_alloc_regs(const limba_func *f, uint32_t max, uint32_t skip,
         for (s = 0; s < ns; s++)
             for (j = 0; j < sp[s].n; j++)
                 if (at[sp[s].o[j]] != UINT32_MAX)
-                    widen(&iv[at[sp[s].o[j]]], l.pos[i]);
+                    widen(
+                        &iv[at[sp[s].o[j]]],
+                        l.pos[fu && fu->anchor[i] != LIMBA_NONE ? fu->anchor[i]
+                                                                : i]);
     }
     for (b = 0; b < f->nblocks; b++) {
         const uint64_t *in = set_of(l.in, l.words, b);

@@ -1091,6 +1091,91 @@ op_CHKLIVE:
     if (!meri_heap_live(&s->heap, RA))
         TRAP((int64_t)k[MERI_W_BX(w)]);
     NEXT;
+op_CHKR: {
+    int64_t v = (int64_t)RA;
+    x = *pc++;
+    if (!((int64_t)RB <= v && v <= (int64_t)RC))
+        TRAP((int64_t)k[x]);
+    NEXT;
+}
+op_CHKRK: {
+    int64_t v = (int64_t)RA;
+    x = *pc++;
+    if (!((int64_t)k[x] <= v && v <= (int64_t)k[x + 1]))
+        TRAP((int64_t)MERI_W_B(w));
+    NEXT;
+}
+#define XADDR ((void *)(uintptr_t)MERI_ADDR(RB + RC * k[x] + k[x + 1]))
+op_LDX1:
+    x = *pc++;
+    RA = *(const uint8_t *)XADDR & 1;
+    NEXT;
+op_LDX8:
+    x = *pc++;
+    RA = (uint64_t)(int64_t)*(const int8_t *)XADDR;
+    NEXT;
+op_LDX16: {
+    int16_t v;
+    x = *pc++;
+    memcpy(&v, XADDR, sizeof(v));
+    RA = (uint64_t)(int64_t)v;
+    NEXT;
+}
+op_LDX32: {
+    int32_t v;
+    x = *pc++;
+    memcpy(&v, XADDR, sizeof(v));
+    RA = (uint64_t)(int64_t)v;
+    NEXT;
+}
+op_LDXF32: {
+    uint32_t v;
+    x = *pc++;
+    memcpy(&v, XADDR, sizeof(v));
+    RA = v;
+    NEXT;
+}
+op_LDX64: {
+    uint64_t v;
+    x = *pc++;
+    memcpy(&v, XADDR, sizeof(v));
+    RA = v;
+    NEXT;
+}
+op_STX8: {
+    uint8_t v = (uint8_t)RA;
+    x = *pc++;
+    memcpy(XADDR, &v, sizeof(v));
+    NEXT;
+}
+op_STX16: {
+    uint16_t v = (uint16_t)RA;
+    x = *pc++;
+    memcpy(XADDR, &v, sizeof(v));
+    NEXT;
+}
+op_STX32: {
+    uint32_t v = (uint32_t)RA;
+    x = *pc++;
+    memcpy(XADDR, &v, sizeof(v));
+    NEXT;
+}
+op_STX64: {
+    uint64_t v = RA;
+    x = *pc++;
+    memcpy(XADDR, &v, sizeof(v));
+    NEXT;
+}
+#undef XADDR
+op_STRPTR:
+    RA = (uint64_t)(uintptr_t)meri_str_of(RB)->data;
+    NEXT;
+op_STRLEN:
+    RA = meri_str_of(RB)->len;
+    NEXT;
+op_PUTB:
+    fputc((int)(uint8_t)RA, s->env->out);
+    NEXT;
 op_UNREACH:
     r->status = MERI_UNREACHABLE;
     goto stop;

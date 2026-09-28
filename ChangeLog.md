@@ -40,5 +40,12 @@
   one real become instructions (`FSQRT`, `FMATH`), and `ptr_live` with
   its check one instruction (`CHKLIVE`). Building with `-DMERI_PROFILE`
   counts the instructions run, their pairs and the runtime calls.
+- More fusions, from the profile: the range check of an index (two
+  comparisons, and, check) is one instruction (`CHKR`, or `CHKRK` with
+  constant limits); an `addr` used only by the load or store right after
+  it goes into it (`LDX*`, `STX*`), with a `sub` of a constant folded
+  into the displacement; `str_ptr`, `str_len` and `print_byte` are
+  instructions. The allocator keeps the operands of a fused sequence
+  alive until the instruction that reads them.
 - The repository: build script (it builds Limba first, in the same
   variant, and links every program with its library), licence, style.

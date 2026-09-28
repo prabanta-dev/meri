@@ -42,11 +42,19 @@ typedef struct {
     uint32_t nregs; /* registers given: 0 .. nregs - 1 */
 } meri_alloc;
 
+/* instructions fused into a later one (lower.c): an absorbed instruction
+   is not emitted and has no register; its operands are read where its
+   anchor is, so they stay alive until there */
+typedef struct {
+    uint8_t *absorbed;
+    uint32_t *anchor; /* LIMBA_NONE: itself */
+} meri_fusion;
+
 /* give registers to the values of f, the parameters of block 0 first in
    0 .. n - 1 (n must not pass skip), never those in skip .. skip + nskip
-   - 1; false if more than max are needed */
+   - 1; fu may be NULL; false if more than max are needed */
 bool meri_alloc_regs(const limba_func *f, uint32_t max, uint32_t skip,
-                     uint32_t nskip, meri_alloc *a);
+                     uint32_t nskip, const meri_fusion *fu, meri_alloc *a);
 void meri_alloc_free(meri_alloc *a);
 
 /* where the values of type str stop living, for their releases: a list
