@@ -708,6 +708,36 @@ static void outgoing(L *l, const uint32_t *o, uint32_t n)
         move(l, l->outgoing + i, reg(l, o[i]));
 }
 
+/* a call that copies its arguments itself (CALLN, CALLRTN): the words
+   of the registers after the first; false if an argument or the base is
+   past 255 (then the arguments are moved one by one) */
+static bool call_n(L *l, unsigned op, unsigned a, uint32_t bx,
+                   const uint32_t *o, uint32_t n)
+{
+    uint32_t i, word, k;
+
+    if (a > 255 || n > 255)
+        return false;
+    for (i = 0; i < n; i++)
+        if (reg(l, o[i]) > 255)
+            return false;
+    if (n > l->maxargs)
+        l->maxargs = n;
+    emit(l, meri_abx(op, a, bx));
+    word = n;
+    for (i = 0; i < n; i++) {
+        k = i + 1;
+        word |= (uint32_t)reg(l, o[i]) << (8 * (k % 4));
+        if (k % 4 == 3) {
+            emit(l, word);
+            word = 0;
+        }
+    }
+    if ((n + 1) % 4 != 0)
+        emit(l, word);
+    return true;
+}
+
 static void call(L *l, uint32_t id, const limba_inst *in)
 {
     const uint32_t *o = l->f->operands + in->first;
@@ -717,9 +747,12 @@ static void call(L *l, uint32_t id, const limba_inst *in)
         l->maxargs = 1; /* the result */
     switch (in->op) {
     case LIMBA_OP_CALL:
-        outgoing(l, o, in->nops);
         if (in->imm < 0 || in->imm > 0xffff)
             fail(l, "calls function %" PRId64 ", past 65535", in->imm);
+        if (in->nops &&
+            call_n(l, MERI_OP_CALLN, a, (uint32_t)in->imm, o, in->nops))
+            break;
+        outgoing(l, o, in->nops);
         if (a > 255) { /* the base of the arguments in a second word */
             emit(l, meri_abx(MERI_OP_CALLW, 0, (uint32_t)in->imm));
             emit(l, a);
@@ -728,6 +761,9 @@ static void call(L *l, uint32_t id, const limba_inst *in)
         }
         break;
     case LIMBA_OP_CALLRT:
+        if (in->nops &&
+            call_n(l, MERI_OP_CALLRTN, a, (uint32_t)in->imm, o, in->nops))
+            break;
         outgoing(l, o, in->nops);
         if (a > 255) {
             emit(l, meri_abx(MERI_OP_CALLRTW, 0, (uint32_t)in->imm));
@@ -1399,6 +1435,9 @@ static bool rt_inline(L *l, uint32_t id, const limba_inst *in)
     case LIMBA_RT_PRINT_BYTE:
         emit(l, meri_abc(MERI_OP_PUTB, use(l, o[0], 0), 0, 0));
         return true;
+    case LIMBA_RT_PRINT_CHAR:
+        emit(l, meri_abc(MERI_OP_PUTC, use(l, o[0], 0), 0, 0));
+        return true;
     }
     return false;
 }
@@ -1651,7 +1690,8 @@ static bool layout(const limba_func *f, uint32_t *order)
     order[0] = 0;
     placed[0] = 1;
     for (k = 1; k < nb; k++) {
-        uint32_t cur = order[k - 1], pick = LIMBA_NONE, i, n = meri_nsuccs(f, cur);
+        uint32_t cur = order[k - 1], pick = LIMBA_NONE, i,
+                 n = meri_nsuccs(f, cur);
         for (i = 0; i < n && i < 2; i++) {
             uint32_t s2 = meri_succ(f, cur, i);
             if (placed[s2])

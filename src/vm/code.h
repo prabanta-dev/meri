@@ -30,6 +30,9 @@ enum meri_fmt {
     MERI_FMT_ABkJ,
     MERI_FMT_MOVW, /* X = destination | source << 16 */
     MERI_FMT_BxX,  /* Bx, and X the base of the arguments */
+    /* A Bx, then the arguments: a word with their number n in its low
+       byte and up to 3 registers, then words of 4 registers */
+    MERI_FMT_ABxN,
 };
 
 enum meri_op {
@@ -46,10 +49,16 @@ typedef struct {
 
 extern const meri_op_info meri_ops[MERI_OP_COUNT];
 
-/* 1 for a format that takes a second word */
+/* the words of a format (for MERI_FMT_ABxN the fewest: see meri_words) */
 static inline unsigned meri_fmt_words(unsigned fmt)
 {
     return fmt >= MERI_FMT_ABC_X ? 2 : 1;
+}
+
+/* the words of an instruction whose second word, if any, is x */
+static inline unsigned meri_n_words(uint32_t n)
+{
+    return 2 + (n > 3 ? (n - 3 + 3) / 4 : 0);
 }
 
 #define MERI_W_OP(w) ((w) & 0xffu)

@@ -937,6 +937,33 @@ op_CALL:
     callee = &p->fns[MERI_W_BX(w)];
     ca = MERI_W_A(w);
     goto call;
+op_CALLN:
+    callee = &p->fns[MERI_W_BX(w)];
+    ca = MERI_W_A(w);
+    goto copy_args;
+op_CALLRTN:
+    callee = NULL; /* a runtime function */
+    ca = MERI_W_A(w);
+copy_args: {
+    /* the registers of the arguments, a byte each after the count */
+    uint32_t n = *pc & 0xff, i2, word = *pc++;
+    uint64_t *to = base + ca;
+    for (i2 = 0; i2 < n; i2++) {
+        uint32_t kk = i2 + 1;
+        if (kk % 4 == 0)
+            word = *pc++;
+        to[i2] = base[(word >> (8 * (kk % 4))) & 0xff];
+    }
+    if (callee)
+        goto call;
+    PROF_RT(MERI_W_BX(w));
+    if (!meri_rt_call(s, MERI_W_BX(w), to)) {
+        r->status = s->status;
+        r->code = s->code;
+        goto stop;
+    }
+    NEXT;
+}
 op_CALLW:
     callee = &p->fns[MERI_W_BX(w)];
     ca = *pc++;
@@ -974,7 +1001,7 @@ call: {
     uint64_t *nb = base + ca;
     uint8_t *ns = align_up(slot_top, callee->slot_align, slots_end);
     /* the slots are memory of the program: past the budget, NOMEM */
-    if (!meri_state_take(s, callee->slot_size))
+    if (callee->slot_size && !meri_state_take(s, callee->slot_size))
         TRAP(LIMBA_TRAP_NOMEM);
     if (depth + 1 >= FRAMES || (size_t)(regs_end - nb) < callee->nregs || !ns ||
         (uint64_t)(slots_end - ns) < callee->slot_size) {
@@ -1009,7 +1036,8 @@ op_RET:
 op_RET0:
     result = 0;
 ret:
-    meri_state_give(s, fn->slot_size);
+    if (fn->slot_size)
+        meri_state_give(s, fn->slot_size);
     if (!depth) {
         r->status = MERI_OK;
         r->ret = result;
@@ -1173,6 +1201,24 @@ op_STRPTR:
 op_STRLEN:
     RA = meri_str_of(RB)->len;
     NEXT;
+op_PUTC: {
+    uint32_t c = (uint32_t)RA;
+    char b8[4];
+    unsigned nb8, i3;
+    /* UTF-8, as the runtime writes it (rt.c) */
+    if (c < 0x80) {
+        fputc((int)c, s->env->out);
+        NEXT;
+    }
+    nb8 = c < 0x800 ? 2 : c < 0x10000 ? 3 : 4;
+    for (i3 = nb8; i3-- > 1;) {
+        b8[i3] = (char)(0x80 | (c & 0x3f));
+        c >>= 6;
+    }
+    b8[0] = (char)((0xf00 >> nb8) | c);
+    fwrite(b8, 1, nb8, s->env->out);
+    NEXT;
+}
 op_PUTB:
     fputc((int)(uint8_t)RA, s->env->out);
     NEXT;

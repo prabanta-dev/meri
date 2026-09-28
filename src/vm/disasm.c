@@ -54,6 +54,17 @@ static void operands(FILE *out, const meri_fn *fn, uint32_t at)
     case MERI_FMT_BxX:
         fprintf(out, " r%" PRIu32 ", %u", x, MERI_W_BX(w));
         break;
+    case MERI_FMT_ABxN: {
+        uint32_t n = x & 0xff, i;
+        fprintf(out, " r%u, %u (", MERI_W_A(w), MERI_W_BX(w));
+        for (i = 0; i < n; i++) {
+            uint32_t k = i + 1, word = fn->code[at + 1 + k / 4];
+            fprintf(out, "%sr%u", i ? ", " : "",
+                    (word >> (8 * (k % 4))) & 0xff);
+        }
+        fputc(')', out);
+        break;
+    }
     case MERI_FMT_ABkJ:
         fprintf(out, " r%u, r%u, k=%u -> %" PRId64, MERI_W_A(w), MERI_W_B(w),
                 MERI_W_C(w), (int64_t)at + 2 + MERI_W_SJ(x));
@@ -90,7 +101,9 @@ void meri_disasm(const meri_program *p, FILE *out)
                 fprintf(out, "  ; %" PRIu32 ":%" PRIu32, ps->line, ps->col);
             }
             fputc('\n', out);
-            at += meri_fmt_words(meri_ops[op].format);
+            at += meri_ops[op].format == MERI_FMT_ABxN
+                      ? meri_n_words(fn->code[at + 1] & 0xff)
+                      : meri_fmt_words(meri_ops[op].format);
         }
     }
 }

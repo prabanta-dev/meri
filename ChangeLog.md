@@ -57,5 +57,9 @@
   source; an addr folds into its load or store anywhere later in the
   block; the blocks are laid out so that the way round a loop falls
   through and its exits jump.
+- Lighter calls: a call copies its arguments itself (`CALLN`,
+  `CALLRTN`: their registers follow it, four to a word) instead of a
+  move each; a function without slots costs nothing to the memory budget
+  when called; `print_char` is an instruction (`PUTC`).
 - The repository: build script (it builds Limba first, in the same
   variant, and links every program with its library), licence, style.

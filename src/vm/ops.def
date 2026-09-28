@@ -200,3 +200,10 @@ MERI_OP(STX64, "stx64", MERI_FMT_ABC_X)
 MERI_OP(STRPTR, "strptr", MERI_FMT_AB)
 MERI_OP(STRLEN, "strlen", MERI_FMT_AB)
 MERI_OP(PUTB, "putb", MERI_FMT_A)
+
+/* calls that copy their arguments themselves: the registers follow the
+   first word (MERI_FMT_ABxN), the callee's window begins at A */
+MERI_OP(CALLN, "calln", MERI_FMT_ABxN)
+MERI_OP(CALLRTN, "call.rtn", MERI_FMT_ABxN)
+/* print_char: the code point R[A] in UTF-8 */
+MERI_OP(PUTC, "putc", MERI_FMT_A)
