@@ -1484,8 +1484,9 @@ static bool const_in(const limba_func *f, uint32_t v, int64_t lo, int64_t hi)
 }
 
 /* the operand of instruction i of block bl (not on a loop) that can be an
-   immediate constant: of add, sub (ADDK...), a comparison fused into the
-   cbr after it (JEQK...), ret (RETK), mem_alloc (ALLOCK); KNONE if none */
+   immediate constant: of add, sub (ADDK...), sdiv (SDIVK), a comparison
+   fused into the cbr after it (JEQK...), ret (RETK), mem_alloc (ALLOCK);
+   KNONE if none */
 static uint8_t imm_operand(const L *l, const uint32_t *uses,
                            const limba_block *bl, uint32_t i)
 {
@@ -1510,6 +1511,11 @@ static uint8_t imm_operand(const L *l, const uint32_t *uses,
             const_in(f, o[0], -127, 127))
             return 0;
         return KNONE;
+    case LIMBA_OP_SDIV:
+        return in->type != LIMBA_T_PTR && (bits == 64 || bits == 32) &&
+                       const_in(f, o[1], 2, 127)
+                   ? 1
+                   : KNONE;
     case LIMBA_OP_RET:
         return in->nops == 1 && const_in(f, o[0], INT16_MIN, INT16_MAX) ? 0
                                                                         : KNONE;
@@ -2304,6 +2310,11 @@ static void inst_body(L *l, uint32_t id, uint32_t next)
                      : (first ? MERI_OP_FMUL3 : MERI_OP_FMUL3R);
             emit(l, meri_abc(op, a, rb, rc));
             emit(l, rx);
+            return;
+        }
+        if (l->kop && l->kop[id] != KNONE && in->op == LIMBA_OP_SDIV) {
+            emit(l, meri_abc(MERI_OP_SDIVK, a, use(l, o[0], 0),
+                             (uint8_t)const_of(f, o[1])));
             return;
         }
         if (l->kop && l->kop[id] != KNONE) {

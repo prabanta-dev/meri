@@ -1490,6 +1490,16 @@ op_LDXU8:
     x = *pc++;
     RA = *(const uint8_t *)(uintptr_t)MERI_ADDR(RB + RC * k[x] + k[x + 1]);
     NEXT;
+op_SDIVK: {
+    int64_t a = (int64_t)RB, d = MERI_W_SC(w);
+    if (!(d & (d - 1))) { /* toward zero: a negative a gets d - 1 first */
+        unsigned sh = (unsigned)__builtin_ctzll((uint64_t)d);
+        RA = (uint64_t)((a + ((a >> 63) & (d - 1))) >> sh);
+    } else {
+        RA = (uint64_t)(a / d);
+    }
+    NEXT;
+}
 op_PUTC: {
     uint32_t c = (uint32_t)RA;
     char b8[4];

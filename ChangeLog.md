@@ -113,5 +113,7 @@
   `LOOPD32`); a load of i8 used only by the zext right after it is one
   zero-extended load (`LDU8`, `LDXU8`). The strings that die at an
   instruction fused into a later one are released after that one.
+- Outside loops, sdiv by a constant of 2 to 127 carries it (`SDIVK`), a
+  power of two by a shift that truncates toward zero as sdiv does.
 - The repository: build script (it builds Limba first, in the same
   variant, and links every program with its library), licence, style.

@@ -266,3 +266,6 @@ MERI_OP(LOOPD32, "loopd32", MERI_FMT_ABCJ)
    at R[B] + R[C] * K[X] + K[X + 1] */
 MERI_OP(LDU8, "ldu8", MERI_FMT_ABC)
 MERI_OP(LDXU8, "ldxu8", MERI_FMT_ABC_X)
+/* sdiv (i64 or i32) by a constant C of 2 to 127, outside loops: no trap
+   possible; a power of two by a shift that truncates as sdiv */
+MERI_OP(SDIVK, "sdivk", MERI_FMT_ABsC)

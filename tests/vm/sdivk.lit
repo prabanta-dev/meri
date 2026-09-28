@@ -1,0 +1,132 @@
+; output: 3 1 0 2 1 0 
+; output: -3 -1 0 -2 -1 0 
+; output: 4 2 0 2 1 0 
+; output: -4 -2 0 -2 -1 0 
+; output: 0 0 0 0 0 0 
+; output: 0 0 0 0 0 0 
+; output: 0 0 0 0 0 0 
+; output: -4611686018427387904 -2305843009213693952 -144115188075855872 -3074457345618258602 -1317624576693539401 -72624976668147841 
+; output: 4611686018427387903 2305843009213693951 144115188075855871 3074457345618258602 1317624576693539401 72624976668147841 
+; output: -64 -32 -2 -43 -18 -1 
+; output: -3 -1 0 -2 -1 0 
+; output: 3 1 0 2 1 0 
+; output: -1073741824 -536870912 -33554432 -715827882 -306783378 -16909320 
+; output: 1073741823 536870911 33554431 715827882 306783378 16909320 
+; output: -32 -16 -1 -21 -9 0 
+; result: 0
+; sdiv by a constant of 2 to 127 outside loops (SDIVK): a power of two
+; by a shift that truncates toward zero as sdiv, the others divided;
+; i64 and i32, positive, negative, odd, the limits
+func @di64 : fn(i64) -> void {
+b0(v0: i64):
+  v1 = iconst i64 2
+  v2 = sdiv i64 v0, v1
+  call.rt void print_i64(v2)
+  v3 = iconst i32 32
+  call.rt void print_char(v3)
+  v4 = iconst i64 4
+  v5 = sdiv i64 v0, v4
+  call.rt void print_i64(v5)
+  v6 = iconst i32 32
+  call.rt void print_char(v6)
+  v7 = iconst i64 64
+  v8 = sdiv i64 v0, v7
+  call.rt void print_i64(v8)
+  v9 = iconst i32 32
+  call.rt void print_char(v9)
+  v10 = iconst i64 3
+  v11 = sdiv i64 v0, v10
+  call.rt void print_i64(v11)
+  v12 = iconst i32 32
+  call.rt void print_char(v12)
+  v13 = iconst i64 7
+  v14 = sdiv i64 v0, v13
+  call.rt void print_i64(v14)
+  v15 = iconst i32 32
+  call.rt void print_char(v15)
+  v16 = iconst i64 127
+  v17 = sdiv i64 v0, v16
+  call.rt void print_i64(v17)
+  v18 = iconst i32 32
+  call.rt void print_char(v18)
+  call.rt void print_nl()
+  ret
+}
+
+func @di32 : fn(i32) -> void {
+b0(v0: i32):
+  v1 = iconst i32 2
+  v2 = sdiv i32 v0, v1
+  v3 = sext i64 v2
+  call.rt void print_i64(v3)
+  v4 = iconst i32 32
+  call.rt void print_char(v4)
+  v5 = iconst i32 4
+  v6 = sdiv i32 v0, v5
+  v7 = sext i64 v6
+  call.rt void print_i64(v7)
+  v8 = iconst i32 32
+  call.rt void print_char(v8)
+  v9 = iconst i32 64
+  v10 = sdiv i32 v0, v9
+  v11 = sext i64 v10
+  call.rt void print_i64(v11)
+  v12 = iconst i32 32
+  call.rt void print_char(v12)
+  v13 = iconst i32 3
+  v14 = sdiv i32 v0, v13
+  v15 = sext i64 v14
+  call.rt void print_i64(v15)
+  v16 = iconst i32 32
+  call.rt void print_char(v16)
+  v17 = iconst i32 7
+  v18 = sdiv i32 v0, v17
+  v19 = sext i64 v18
+  call.rt void print_i64(v19)
+  v20 = iconst i32 32
+  call.rt void print_char(v20)
+  v21 = iconst i32 127
+  v22 = sdiv i32 v0, v21
+  v23 = sext i64 v22
+  call.rt void print_i64(v23)
+  v24 = iconst i32 32
+  call.rt void print_char(v24)
+  call.rt void print_nl()
+  ret
+}
+
+func @main : fn() -> i64 {
+b0:
+  v0 = iconst i64 7
+  call void @di64(v0)
+  v1 = iconst i64 -7
+  call void @di64(v1)
+  v2 = iconst i64 8
+  call void @di64(v2)
+  v3 = iconst i64 -8
+  call void @di64(v3)
+  v4 = iconst i64 -1
+  call void @di64(v4)
+  v5 = iconst i64 1
+  call void @di64(v5)
+  v6 = iconst i64 0
+  call void @di64(v6)
+  v7 = iconst i64 -9223372036854775808
+  call void @di64(v7)
+  v8 = iconst i64 9223372036854775807
+  call void @di64(v8)
+  v9 = iconst i64 -129
+  call void @di64(v9)
+  v10 = iconst i32 -7
+  call void @di32(v10)
+  v11 = iconst i32 7
+  call void @di32(v11)
+  v12 = iconst i32 -2147483648
+  call void @di32(v12)
+  v13 = iconst i32 2147483647
+  call void @di32(v13)
+  v14 = iconst i32 -65
+  call void @di32(v14)
+  v15 = iconst i64 0
+  ret v15
+}
