@@ -933,6 +933,18 @@ static bool is_const(const limba_func *f, uint32_t v)
     return f->insts[v].op == LIMBA_OP_ICONST;
 }
 
+/* a constant that can be loaded once, before block 0: not a str (those
+   are counted, and their releases follow their places) */
+static bool hoistable(const limba_func *f, uint32_t v)
+{
+    const limba_inst *in = &f->insts[v];
+    unsigned fmt = limba_ops[in->op].format;
+
+    return (fmt == LIMBA_F_ICONST || fmt == LIMBA_F_FCONST ||
+            fmt == LIMBA_F_TYPED) &&
+           in->type != LIMBA_T_STR;
+}
+
 static int64_t const_of(const limba_func *f, uint32_t v)
 {
     return (int64_t)meri_norm((uint64_t)f->insts[v].imm, f->insts[v].type);
@@ -1000,8 +1012,9 @@ static bool find_fusions(L *l)
 {
     const limba_func *f = l->f;
     size_t n = (size_t)f->ninsts + 1;
-    uint32_t *uses = calloc(n, sizeof(uint32_t)), *need = NULL;
-    uint32_t b, i, s, j;
+    uint32_t *uses = calloc(n, sizeof(uint32_t)), *need = NULL, *seq = NULL;
+    uint32_t b, i, s, j, ns;
+    bool hoist;
 
     l->fu.absorbed = calloc(n, 1);
     l->fu.anchor = malloc(n * sizeof(uint32_t));
@@ -1010,13 +1023,19 @@ static bool find_fusions(L *l)
     l->ridx = malloc(n * sizeof(uint32_t));
     l->ldx = malloc(n * sizeof(uint32_t));
     l->fold = malloc(n * sizeof(uint32_t));
+    l->fu.hoist = calloc(n, 1);
     need = calloc(n, sizeof(uint32_t));
-    if (!uses || !need || !l->fu.absorbed || !l->fu.anchor || !l->rlo ||
-        !l->rhi || !l->ridx || !l->ldx || !l->fold) {
+    seq = malloc(n * sizeof(uint32_t));
+    if (!uses || !need || !seq || !l->fu.absorbed || !l->fu.anchor || !l->rlo ||
+        !l->rhi || !l->ridx || !l->ldx || !l->fold || !l->fu.hoist) {
         free(uses);
         free(need);
+        free(seq);
         return false;
     }
+    /* the constants go before block 0, which no jump enters again (the
+       verifier of Limba refuses a branch to the entry block) */
+    hoist = true;
     for (i = 0; i < f->ninsts; i++) {
         meri_span sp[3];
         uint32_t ns = meri_value_spans(f, &f->insts[i], sp);
@@ -1028,18 +1047,23 @@ static bool find_fusions(L *l)
     }
     for (b = 0; b < f->nblocks; b++) {
         const limba_block *bl = &f->blocks[b];
-        for (i = bl->nparams; i < bl->ninsts; i++) {
-            const uint32_t *w = bl->insts + i;
+        /* the instructions as emitted: without the constants loaded
+           before block 0, which no longer stand between the others */
+        for (ns = 0, i = bl->nparams; i < bl->ninsts; i++)
+            if (!(hoist && hoistable(f, bl->insts[i])))
+                seq[ns++] = bl->insts[i];
+        for (i = 0; i < ns; i++) {
+            const uint32_t *w = seq + i;
             uint32_t lo, x, hi;
-            if (i + 3 < bl->ninsts && range_check(f, uses, w, &lo, &x, &hi)) {
+            if (i + 3 < ns && range_check(f, uses, w, &lo, &x, &hi)) {
                 l->rlo[w[3]] = lo, l->ridx[w[3]] = x, l->rhi[w[3]] = hi;
                 absorb(l, w[0], w[3]);
                 absorb(l, w[1], w[3]);
                 absorb(l, w[2], w[3]);
             }
         }
-        for (i = bl->nparams; i + 1 < bl->ninsts; i++) {
-            uint32_t a = bl->insts[i], t = bl->insts[i + 1];
+        for (i = 0; i + 1 < ns; i++) {
+            uint32_t a = seq[i], t = seq[i + 1];
             const limba_inst *ai = &f->insts[a], *ti = &f->insts[t];
             const uint32_t *ot = f->operands + ti->first;
             bool load = ti->op == LIMBA_OP_LOAD && ot[0] == a &&
@@ -1051,8 +1075,8 @@ static bool find_fusions(L *l)
                 absorb(l, a, t);
             }
         }
-        for (i = bl->nparams; i + 1 < bl->ninsts; i++) {
-            uint32_t t = bl->insts[i], a = bl->insts[i + 1];
+        for (i = 0; i + 1 < ns; i++) {
+            uint32_t t = seq[i], a = seq[i + 1];
             const limba_inst *ti = &f->insts[t], *ai = &f->insts[a];
             const uint32_t *ot = f->operands + ti->first;
             if (ti->op == LIMBA_OP_SUB && bits_of(ti->type) == 64 &&
@@ -1096,11 +1120,15 @@ static bool find_fusions(L *l)
         if (f->insts[i].op == LIMBA_OP_ADDR && l->fold[i] != LIMBA_NONE)
             need[f->operands[f->insts[l->fold[i]].first]]++;
     }
-    for (i = 0; i < f->ninsts; i++)
+    for (i = 0; i < f->ninsts; i++) {
         if (is_const(f, i) && uses[i] && !need[i])
             absorb(l, i, LIMBA_NONE);
+        else if (hoist && hoistable(f, i) && !l->fu.absorbed[i])
+            l->fu.hoist[i] = 1;
+    }
     free(uses);
     free(need);
+    free(seq);
     return true;
 }
 
@@ -1241,6 +1269,8 @@ static void inst_body(L *l, uint32_t id, uint32_t next)
     l->cur = limba_inst_pos(f, id);
     if (l->fu.absorbed && l->fu.absorbed[id])
         return; /* emitted with a later instruction */
+    if (l->fu.hoist && l->fu.hoist[id])
+        return; /* loaded before block 0 */
     switch (limba_ops[in->op].format) {
     case LIMBA_F_ICONST:
         load_const(l, a, meri_norm((uint64_t)in->imm, in->type));
@@ -1483,13 +1513,28 @@ static bool registers(L *l, uint32_t nparams)
     const limba_func *f = l->f;
     uint32_t nargs = max_call_args(f);
 
-    if (meri_alloc_regs(f, 255, 255, 0, &l->fu, &l->al)) {
-        l->scratch = l->al.nregs > nparams ? l->al.nregs : nparams;
-        l->outgoing = l->scratch + 1;
-        if (l->outgoing + nargs <= 256)
-            return true;
+    uint32_t pass;
+    uint8_t *hoist = l->fu.hoist;
+
+    /* narrow with the constants hoisted, else narrow without, else wide
+       without: a long live constant must not push a function wide */
+    for (pass = 0; pass < 2; pass++) {
+        l->fu.hoist = pass ? NULL : hoist;
+        if (meri_alloc_regs(f, 255, 255, 0, &l->fu, &l->al)) {
+            l->scratch = l->al.nregs > nparams ? l->al.nregs : nparams;
+            l->outgoing = l->scratch + 1;
+            if (l->outgoing + nargs <= 256)
+                break;
+        }
+        meri_alloc_free(&l->al);
     }
-    meri_alloc_free(&l->al);
+    if (pass < 2) {
+        if (!l->fu.hoist)
+            free(hoist);
+        return true;
+    }
+    free(hoist);
+    l->fu.hoist = NULL;
     if (nparams > 250) {
         fail(l, "more than 250 parameters and 255 registers");
         return false;
@@ -1552,11 +1597,27 @@ static void function(meri_program *p, uint32_t fid, meri_diag *d)
         if (!l.label)
             fail(&l, "out of memory");
         /* the parameters are the callee's own: a reference each, taken
-           before block 0, which a jump may enter again */
+           before block 0 */
         for (i = 0; i < f->blocks[0].nparams; i++)
             if (is_str(&l, f->blocks[0].insts[i]))
                 emit(&l, meri_abc(MERI_OP_SRETAIN,
                                   use(&l, f->blocks[0].insts[i], 0), 0, 0));
+        /* the hoisted constants, once */
+        for (i = 0; l.fu.hoist && i < f->ninsts; i++) {
+            const limba_inst *in = &f->insts[i];
+            uint64_t v;
+            if (!l.fu.hoist[i])
+                continue;
+            l.cur = limba_inst_pos(f, i);
+            v = in->op == LIMBA_OP_ICONST
+                    ? meri_norm((uint64_t)in->imm, in->type)
+                : in->op == LIMBA_OP_FCONST
+                    ? (in->type == LIMBA_T_F32 ? (uint64_t)(uint32_t)in->imm
+                                               : (uint64_t)in->imm)
+                    : 0;
+            load_const(&l, def(&l, i), v);
+            done(&l);
+        }
         for (b = 0; b < f->nblocks && !l.failed; b++) {
             const limba_block *bl = &f->blocks[b];
             uint32_t next = b + 1 < f->nblocks ? b + 1 : LIMBA_NONE;
@@ -1596,6 +1657,7 @@ static void function(meri_program *p, uint32_t fid, meri_diag *d)
     free(l.chk);
     free(l.gone);
     free(l.fu.absorbed);
+    free(l.fu.hoist);
     free(l.fu.anchor);
     free(l.rlo);
     free(l.rhi);

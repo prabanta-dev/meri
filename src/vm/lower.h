@@ -48,6 +48,9 @@ typedef struct {
 typedef struct {
     uint8_t *absorbed;
     uint32_t *anchor; /* LIMBA_NONE: itself */
+    /* constants loaded once, before block 0: defined there for liveness,
+       at the position 0; NULL, or no one, for none */
+    uint8_t *hoist;
 } meri_fusion;
 
 /* give registers to the values of f, the parameters of block 0 first in

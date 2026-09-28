@@ -144,7 +144,9 @@ static bool set_has(const uint64_t *s, uint32_t v)
     return s[v / 64] >> (v % 64) & 1;
 }
 
-static bool live_init(live *l, const limba_func *f)
+/* hoist: the values defined before block 0 instead of where they are
+   (lower.c), or NULL */
+static bool live_init(live *l, const limba_func *f, const uint8_t *hoist)
 {
     uint32_t b, k, p = 0;
     size_t n;
@@ -162,6 +164,10 @@ static bool live_init(live *l, const limba_func *f)
     if (!l->in || !l->out || !l->use || !l->def || !l->pos || !l->bstart ||
         !l->bend)
         return false;
+    if (hoist && f->nblocks)
+        for (k = 0; k < f->ninsts; k++)
+            if (hoist[k])
+                set_add(l->def, k); /* the defs of block 0 */
 
     for (b = 0; b < f->nblocks; b++) {
         const limba_block *bl = &f->blocks[b];
@@ -176,6 +182,10 @@ static bool live_init(live *l, const limba_func *f)
             uint32_t ns = meri_value_spans(f, in, sp);
 
             l->pos[id] = k < bl->nparams ? l->bstart[b] : p++;
+            if (hoist && hoist[id]) {
+                l->pos[id] = 0; /* before everything */
+                continue;       /* no operands, defined in block 0 */
+            }
             for (s = 0; s < ns; s++)
                 for (j = 0; j < sp[s].n; j++)
                     if (!set_has(def, sp[s].o[j]))
@@ -393,7 +403,8 @@ bool meri_alloc_regs(const limba_func *f, uint32_t max, uint32_t skip,
     at = malloc(((size_t)f->ninsts + 1) * sizeof(uint32_t));
     freeset = calloc(nwords + 1, sizeof(uint64_t));
     if (!a->reg || !a->fused || !iv || !active || !at || !freeset ||
-        max > MERI_NOREG || !live_init(&l, f) || !hints_make(f, &h))
+        max > MERI_NOREG || !live_init(&l, f, fu ? fu->hoist : NULL) ||
+        !hints_make(f, &h))
         goto done;
     live_solve(&l);
     find_fused(f, a->fused);
@@ -561,7 +572,7 @@ bool meri_str_plan(const limba_func *f, meri_strplan *p)
     p->edge_at = calloc((size_t)f->nblocks + 1, sizeof(uint32_t));
     p->edge = calloc((size_t)nedges + 1, sizeof(meri_list));
     if (!p->after || !p->start || !p->at_ret || !p->edge_at || !p->edge ||
-        !live_init(&l, f))
+        !live_init(&l, f, NULL))
         goto done;
     live_solve(&l);
     now = calloc(l.words, sizeof(uint64_t));

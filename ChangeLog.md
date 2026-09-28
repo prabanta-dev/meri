@@ -47,5 +47,9 @@
   into the displacement; `str_ptr`, `str_len` and `print_byte` are
   instructions. The allocator keeps the operands of a fused sequence
   alive until the instruction that reads them.
+- The constants of a function (integers, reals, null) are loaded once,
+  before block 0, instead of on every pass through a loop; liveness sees
+  them defined there. If the registers would not fit, the function is
+  emitted without hoisting rather than wide.
 - The repository: build script (it builds Limba first, in the same
   variant, and links every program with its library), licence, style.
