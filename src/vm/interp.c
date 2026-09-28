@@ -1443,6 +1443,30 @@ op_SMOD32: {
     RA = (uint64_t)(int64_t)m;
     NEXT;
 }
+op_FMADD:
+    x = *pc++;
+    RA = db(dv(RB) * dv(RC) + dv(base[x]));
+    NEXT;
+op_FMADDR:
+    x = *pc++;
+    RA = db(dv(base[x]) + dv(RB) * dv(RC));
+    NEXT;
+op_FMSUB:
+    x = *pc++;
+    RA = db(dv(RB) * dv(RC) - dv(base[x]));
+    NEXT;
+op_FMSUBR:
+    x = *pc++;
+    RA = db(dv(base[x]) - dv(RB) * dv(RC));
+    NEXT;
+op_FMUL3:
+    x = *pc++;
+    RA = db(dv(RB) * dv(RC) * dv(base[x]));
+    NEXT;
+op_FMUL3R:
+    x = *pc++;
+    RA = db(dv(base[x]) * (dv(RB) * dv(RC)));
+    NEXT;
 op_PUTC: {
     uint32_t c = (uint32_t)RA;
     char b8[4];

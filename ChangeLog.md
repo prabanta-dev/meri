@@ -103,5 +103,8 @@
 - A load right after a store to the same address, of the same type, is
   the value stored, in its register; a call without arguments returns
   straight to its register too (`CALLND`).
+- An f64 fmul used once by an fadd, fsub or fmul is one instruction with
+  it (`FMADD`, `FMSUB`, `FMUL3` and their reversed forms): two roundings,
+  as the IR says, never an FMA; the operands in the order of the IR.
 - The repository: build script (it builds Limba first, in the same
   variant, and links every program with its library), licence, style.

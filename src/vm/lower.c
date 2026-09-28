@@ -81,6 +81,7 @@ typedef struct {
     uint8_t *kop;    /* the operand taken as an immediate constant, or KNONE */
     uint32_t *smod;  /* of a select: the srem of the mod it ends (SMOD) */
     uint32_t *fwd;   /* of a load: the value stored there right before */
+    uint32_t *fpm;   /* of an f64 fadd, fsub, fmul: the fmul fused in */
     uint32_t *npred; /* of each block: the jumps to it */
     fixup *fix;
     uint32_t nfix, capfix;
@@ -1578,13 +1579,14 @@ static bool find_fusions(L *l)
     l->kop = malloc(n);
     l->smod = malloc(n * sizeof(uint32_t));
     l->fwd = malloc(n * sizeof(uint32_t));
+    l->fpm = malloc(n * sizeof(uint32_t));
     l->fu.hoist = calloc(n, 1);
     need = calloc(n, sizeof(uint32_t));
     seq = malloc(n * sizeof(uint32_t));
     if (!uses || !need || !seq || !l->fu.absorbed || !l->fu.anchor || !l->rlo ||
         !l->rhi || !l->ridx || !l->ldx || !l->fold || !l->nz || !l->tz ||
         !l->ccmp || !l->rsub || !l->done || !l->kop || !l->smod || !l->fwd ||
-        !l->fu.hoist) {
+        !l->fpm || !l->fu.hoist) {
         free(uses);
         free(need);
         free(seq);
@@ -1608,7 +1610,7 @@ static bool find_fusions(L *l)
         l->ldx[i] = l->fold[i] = l->nz[i] = l->tz[i] = LIMBA_NONE;
         l->ccmp[i] = l->rsub[i] = LIMBA_NONE;
         l->kop[i] = KNONE;
-        l->smod[i] = l->fwd[i] = LIMBA_NONE;
+        l->smod[i] = l->fwd[i] = l->fpm[i] = LIMBA_NONE;
         for (s = 0; s < ns; s++)
             for (j = 0; j < sp[s].n; j++)
                 uses[sp[s].o[j]]++;
@@ -1749,6 +1751,30 @@ static bool find_fusions(L *l)
                 !l->fu.absorbed[seq[i + 1]])
                 l->fwd[seq[i + 1]] = so[0];
         }
+        /* an f64 fmul used once, by an fadd, fsub or fmul later in the
+           block (not one with an fmul in it already): FMADD... Pure, so
+           computed where its user is */
+        for (i = 0; i < ns; i++) {
+            uint32_t t = seq[i];
+            const limba_inst *ti = &f->insts[t];
+            if (ti->op != LIMBA_OP_FMUL || ti->type != LIMBA_T_F64 ||
+                uses[t] != 1 || l->fu.absorbed[t] || l->fpm[t] != LIMBA_NONE)
+                continue;
+            for (k2 = i + 1; k2 < ns; k2++) {
+                uint32_t u = seq[k2];
+                const limba_inst *ui = &f->insts[u];
+                const uint32_t *ou = f->operands + ui->first;
+                if ((ui->op == LIMBA_OP_FADD || ui->op == LIMBA_OP_FSUB ||
+                     ui->op == LIMBA_OP_FMUL) &&
+                    ui->type == LIMBA_T_F64 && (ou[0] == t || ou[1] == t)) {
+                    if (!l->fu.absorbed[u] && l->fpm[u] == LIMBA_NONE) {
+                        l->fpm[u] = t;
+                        absorb(l, t, u);
+                    }
+                    break;
+                }
+            }
+        }
         /* the mod of Luxia, seven in a row: SMOD */
         for (i = 0; i + 6 < ns; i++)
             if (luxia_mod(l, uses, seq + i)) {
@@ -1803,6 +1829,11 @@ static bool find_fusions(L *l)
             need[l->nz[i]]++;
         if (l->smod[i] != LIMBA_NONE) {
             const uint32_t *om = f->operands + f->insts[l->smod[i]].first;
+            need[om[0]]++;
+            need[om[1]]++;
+        }
+        if (l->fpm[i] != LIMBA_NONE) {
+            const uint32_t *om = f->operands + f->insts[l->fpm[i]].first;
             need[om[0]]++;
             need[om[1]]++;
         }
@@ -2131,6 +2162,21 @@ static void inst_body(L *l, uint32_t id, uint32_t next)
             integer(l, in, a, use(l, o[0], 0), 0);
         return;
     case LIMBA_F_BIN:
+        if (l->fpm && l->fpm[id] != LIMBA_NONE) {
+            /* t = b * c fused in: the other operand in X, the order kept */
+            const uint32_t *ot = f->operands + f->insts[l->fpm[id]].first;
+            bool first = o[0] == l->fpm[id];
+            unsigned rb = use(l, ot[0], 0), rc = use(l, ot[1], 1);
+            unsigned rx = use(l, o[first ? 1 : 0], 2), op;
+            op = in->op == LIMBA_OP_FADD
+                     ? (first ? MERI_OP_FMADD : MERI_OP_FMADDR)
+                 : in->op == LIMBA_OP_FSUB
+                     ? (first ? MERI_OP_FMSUB : MERI_OP_FMSUBR)
+                     : (first ? MERI_OP_FMUL3 : MERI_OP_FMUL3R);
+            emit(l, meri_abc(op, a, rb, rc));
+            emit(l, rx);
+            return;
+        }
         if (l->kop && l->kop[id] != KNONE) {
             /* add or sub with a constant of 8 bits: ADDK... */
             unsigned k = l->kop[id], bits = bits_of(in->type);
@@ -2659,6 +2705,7 @@ static void function(meri_program *p, uint32_t fid, meri_diag *d)
     free(l.kop);
     free(l.smod);
     free(l.fwd);
+    free(l.fpm);
     free(l.rsub);
     free(l.done);
     free(l.at_of);

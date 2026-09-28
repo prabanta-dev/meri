@@ -250,3 +250,12 @@ MERI_OP(FREE, "free", MERI_FMT_A)
    rest is not 0 and its sign differs from R[C]'s; DIVZERO as srem */
 MERI_OP(SMOD, "smod", MERI_FMT_ABC)
 MERI_OP(SMOD32, "smod32", MERI_FMT_ABC)
+/* an f64 fmul t = R[B] * R[C] and the fadd, fsub or fmul that uses it,
+   with R[X]: two roundings, as the two instructions (not an FMA), the
+   operands in the order of the IR (R suffix: R[X] first) */
+MERI_OP(FMADD, "fmadd", MERI_FMT_ABC_X)
+MERI_OP(FMADDR, "fmaddr", MERI_FMT_ABC_X)
+MERI_OP(FMSUB, "fmsub", MERI_FMT_ABC_X)
+MERI_OP(FMSUBR, "fmsubr", MERI_FMT_ABC_X)
+MERI_OP(FMUL3, "fmul3", MERI_FMT_ABC_X)
+MERI_OP(FMUL3R, "fmul3r", MERI_FMT_ABC_X)

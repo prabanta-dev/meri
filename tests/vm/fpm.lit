@@ -1,0 +1,120 @@
+; output: 4616189618054758400 4616189618054758400 4615063718147915776 -4608308318706860032 4606619468846596096 4606619468846596096 
+; output: 0 0 4611686018427387904 -4611686018427387904 -4616189618054758400 -4616189618054758400 
+; output: nan nan nan nan nan nan 
+; output: nan nan nan nan nan nan 
+; result: 0
+; an f64 fmul fused into the fadd, fsub or fmul that uses it (FMADD,
+; FMADDR, FMSUB, FMSUBR, FMUL3, FMUL3R): two roundings, never an FMA
+; ((1 + 2^-30) (1 - 2^-30) - 1 is 0, not -2^-60), bit for bit; a NaN
+; produced is only nan (its bits are not specified, progetto_ir.md)
+func @bits : fn(f64, f64, f64) -> void {
+b0(v0: f64, v1: f64, v2: f64):
+  v3 = fmul f64 v0, v1
+  v4 = fadd f64 v3, v2
+  v5 = bitcast i64 v4
+  call.rt void print_i64(v5)
+  v6 = iconst i32 32
+  call.rt void print_char(v6)
+  v7 = fmul f64 v0, v1
+  v8 = fadd f64 v2, v7
+  v9 = bitcast i64 v8
+  call.rt void print_i64(v9)
+  v10 = iconst i32 32
+  call.rt void print_char(v10)
+  v11 = fmul f64 v0, v1
+  v12 = fsub f64 v11, v2
+  v13 = bitcast i64 v12
+  call.rt void print_i64(v13)
+  v14 = iconst i32 32
+  call.rt void print_char(v14)
+  v15 = fmul f64 v0, v1
+  v16 = fsub f64 v2, v15
+  v17 = bitcast i64 v16
+  call.rt void print_i64(v17)
+  v18 = iconst i32 32
+  call.rt void print_char(v18)
+  v19 = fmul f64 v0, v1
+  v20 = fmul f64 v19, v2
+  v21 = bitcast i64 v20
+  call.rt void print_i64(v21)
+  v22 = iconst i32 32
+  call.rt void print_char(v22)
+  v23 = fmul f64 v0, v1
+  v24 = fmul f64 v2, v23
+  v25 = bitcast i64 v24
+  call.rt void print_i64(v25)
+  v26 = iconst i32 32
+  call.rt void print_char(v26)
+  call.rt void print_nl()
+  ret
+}
+
+func @text : fn(f64, f64, f64) -> void {
+b0(v0: f64, v1: f64, v2: f64):
+  v3 = fmul f64 v0, v1
+  v4 = fadd f64 v3, v2
+  call.rt void print_f64(v4)
+  v5 = iconst i32 32
+  call.rt void print_char(v5)
+  v6 = fmul f64 v0, v1
+  v7 = fadd f64 v2, v6
+  call.rt void print_f64(v7)
+  v8 = iconst i32 32
+  call.rt void print_char(v8)
+  v9 = fmul f64 v0, v1
+  v10 = fsub f64 v9, v2
+  call.rt void print_f64(v10)
+  v11 = iconst i32 32
+  call.rt void print_char(v11)
+  v12 = fmul f64 v0, v1
+  v13 = fsub f64 v2, v12
+  call.rt void print_f64(v13)
+  v14 = iconst i32 32
+  call.rt void print_char(v14)
+  v15 = fmul f64 v0, v1
+  v16 = fmul f64 v15, v2
+  call.rt void print_f64(v16)
+  v17 = iconst i32 32
+  call.rt void print_char(v17)
+  v18 = fmul f64 v0, v1
+  v19 = fmul f64 v2, v18
+  call.rt void print_f64(v19)
+  v20 = iconst i32 32
+  call.rt void print_char(v20)
+  call.rt void print_nl()
+  ret
+}
+
+func @main : fn() -> i64 {
+b0:
+  v0 = iconst i64 4609434218613702656
+  v1 = bitcast f64 v0
+  v2 = iconst i64 4612811918334230528
+  v3 = bitcast f64 v2
+  v4 = iconst i64 4598175219545276416
+  v5 = bitcast f64 v4
+  call void @bits(v1, v3, v5)
+  v6 = iconst i64 4607182418804211712
+  v7 = bitcast f64 v6
+  v8 = iconst i64 4607182418791628800
+  v9 = bitcast f64 v8
+  v10 = iconst i64 -4616189618054758400
+  v11 = bitcast f64 v10
+  call void @bits(v7, v9, v11)
+  v12 = iconst i64 9221120237041090561
+  v13 = bitcast f64 v12
+  v14 = iconst i64 4607182418800017408
+  v15 = bitcast f64 v14
+  v16 = iconst i64 9221120237041090562
+  v17 = bitcast f64 v16
+  call void @text(v13, v15, v17)
+  v18 = iconst i64 9218868437227405312
+  v19 = bitcast f64 v18
+  v20 = iconst i64 0
+  v21 = bitcast f64 v20
+  v22 = iconst i64 4607182418800017408
+  v23 = bitcast f64 v22
+  call void @text(v19, v21, v23)
+  v24 = iconst i64 0
+  ret v24
+}
