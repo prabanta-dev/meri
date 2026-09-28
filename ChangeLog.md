@@ -118,5 +118,14 @@
 - A range check with limits in registers and the addr of its index right
   after it are one instruction (`CHKADDR`, three words); `CHKRS` also
   with a constant lower limit, when its sub is not folded into an addr.
+- BigInt (IR of Limba 2e8fbb8): a ref is a number of the run, counted
+  as a str by every rule of the strings (deaths, edges, loads and stores,
+  typed slots, retain and release); its functions run on mini-gmp (GMP
+  6.3.0, in src/third_party/mini-gmp, unchanged, with its provenance),
+  whose memory counts against the budget and gives NOMEM past it. The
+  conversions to the reals are rounded once, straight to the type;
+  big_cmp is -1, 0 or 1; the powers of 0, 1 and -1 are exact; a power
+  that cannot fit is refused before it is made. test_vm checks the
+  numbers alive at the end (; refs:).
 - The repository: build script (it builds Limba first, in the same
   variant, and links every program with its library), licence, style.

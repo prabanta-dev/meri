@@ -560,6 +560,7 @@ bool meri_alloc_regs(const limba_func *f, uint32_t max, uint32_t skip,
             if (active[k].end < iv[i].start ||
                 (active[k].end == iv[i].start && iv[i].start == l.pos[v] &&
                  f->insts[av].type != LIMBA_T_STR &&
+                 f->insts[av].type != LIMBA_T_REF &&
                  f->insts[v].op != LIMBA_OP_PARAM)) {
                 r = a->reg[active[k].value];
                 freeset[r / 64] |= 1ull << (r % 64);
@@ -613,9 +614,11 @@ done:
 
 /* ---- the deaths of the strings ---- */
 
+/* a counted handle (progetto_ir.md § 11c, § 11d): a str, or the ref of a
+   BigInt; both die, and are released, the same way */
 static bool is_str(const limba_func *f, uint32_t v)
 {
-    return f->insts[v].type == LIMBA_T_STR;
+    return f->insts[v].type == LIMBA_T_STR || f->insts[v].type == LIMBA_T_REF;
 }
 
 /* v appended to list l, the last list of the pool */

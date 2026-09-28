@@ -9,6 +9,8 @@
  */
 #include "vm/rt.h"
 
+#include "vm/big.h"
+
 #include "limba/fmt.h"
 #include "limba/val.h"
 
@@ -100,13 +102,16 @@ static void rc_walk(meri_state *s, uintptr_t p, limba_id t, int d)
     if (!s->p->holds_str[t])
         return;
     switch (ty->kind) {
-    case LIMBA_TK_STR: {
+    case LIMBA_TK_STR:
+    case LIMBA_TK_REF: {
         uint64_t v;
         memcpy(&v, (const void *)p, sizeof(v));
         if (d > 0)
-            meri_str_retain(v);
-        else
+            meri_str_retain(v); /* a count first, as in a str */
+        else if (ty->kind == LIMBA_TK_STR)
             meri_state_release(s, v);
+        else
+            meri_big_release(s, v);
         return;
     }
     case LIMBA_TK_ARRAY:
@@ -532,6 +537,8 @@ bool meri_rt_call(meri_state *s, uint32_t id, uint64_t *a)
     }
     if (maths(id, a))
         return true;
+    if ((r = meri_big_call(s, id, a)) >= 0)
+        return r == 1;
     if ((r = console(s, id, a)) == NOT_MINE)
         r = strings(s, id, a);
     if (r == NOT_MINE) { /* a table newer than this runtime */

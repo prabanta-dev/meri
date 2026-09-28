@@ -80,6 +80,7 @@ typedef struct {
     /* the strings of the run still alive when it ended (those in globals
        and in blocks never freed, or a missed release) */
     uint64_t live_strings;
+    uint64_t live_refs; /* the same for the numbers of BigInt (big.h) */
 } meri_result;
 
 typedef struct {

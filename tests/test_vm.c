@@ -13,6 +13,7 @@
  *   "; at: <l>:<c>"     where (tests/vm only)
  *   "; strings: <n>"    strings still alive at the end (tests/vm only):
  *                       a missed release leaves one more
+ *   "; refs: <n>"       the same for the numbers of BigInt
  *   "; memory: broken"  a rule of the strings in memory broken: the first
  *                       cut of Meri does not check them, so it is skipped
  * The program is compiled, disassembled (to nothing) and run.
@@ -67,8 +68,8 @@ typedef struct {
     size_t outlen;
     int status;
     int64_t value; /* the trap code or the result */
-    bool has_result, has_at, has_strings, skip;
-    uint64_t strings;
+    bool has_result, has_at, has_strings, has_refs, skip;
+    uint64_t strings, refs;
     unsigned line, col;
 } expect;
 
@@ -94,6 +95,9 @@ static void header(const char *text, expect *e)
         } else if (!strncmp(p, "; strings: ", 11)) {
             e->strings = strtoull(p + 11, NULL, 10);
             e->has_strings = true;
+        } else if (!strncmp(p, "; refs: ", 8)) {
+            e->refs = strtoull(p + 8, NULL, 10);
+            e->has_refs = true;
         } else if (!strncmp(p, "; at: ", 6)) {
             e->has_at = sscanf(p + 6, "%u:%u", &e->line, &e->col) == 2;
         } else if (!strncmp(p, "; memory: broken", 16)) {
@@ -171,6 +175,9 @@ static void one(const char *path)
         CHECK(!e.has_strings || r.live_strings == e.strings,
               "%s: %" PRIu64 " strings alive at the end, expected %" PRIu64,
               path, r.live_strings, e.strings);
+        CHECK(!e.has_refs || r.live_refs == e.refs,
+              "%s: %" PRIu64 " BigInts alive at the end, expected %" PRIu64,
+              path, r.live_refs, e.refs);
         if (e.has_at) {
             const limba_pos *ps =
                 r.pos && r.pos <= m->npos ? &m->pos[r.pos - 1] : NULL;

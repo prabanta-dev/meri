@@ -273,3 +273,8 @@ MERI_OP(SDIVK, "sdivk", MERI_FMT_ABsC)
    R[X >> 8 & 0xff], the trap K[X >> 16]) and the addr after it:
    R[A] = R[C] + R[B] * K[Y] + K[Y + 1] */
 MERI_OP(CHKADDR, "chkaddr", MERI_FMT_ABC_XY)
+/* the ref of a BigInt (big.h): one reference less on R[A]; store R[A]
+   at R[B] + C, retained, the old one released (SRETAIN and LDS serve a
+   ref as a str: the count is first in both) */
+MERI_OP(RRELEASE, "rrelease", MERI_FMT_A)
+MERI_OP(STSR, "stsr", MERI_FMT_ABC)

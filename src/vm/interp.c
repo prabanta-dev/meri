@@ -15,6 +15,7 @@
  */
 #include "vm/code.h"
 #include "vm/lower.h"
+#include "vm/big.h"
 #include "vm/rt.h"
 #include "vm/vm.h"
 
@@ -953,6 +954,18 @@ op_SRETAIN:
 op_SRELEASE:
     meri_state_release(s, RA);
     NEXT;
+op_RRELEASE:
+    meri_big_release(s, RA);
+    NEXT;
+op_STSR: {
+    void *q = (void *)(uintptr_t)MERI_ADDR(RB + MERI_W_C(w));
+    uint64_t v = RA, old;
+    memcpy(&old, q, sizeof(old));
+    meri_str_retain(v);
+    memcpy(q, &v, sizeof(v));
+    meri_big_release(s, old);
+    NEXT;
+}
 op_LDS: {
     uint64_t v;
     memcpy(&v, (const void *)(uintptr_t)MERI_ADDR(RB + MERI_W_C(w)), sizeof(v));
@@ -1595,9 +1608,11 @@ void meri_run(const meri_program *p, const char *entry, const meri_env *env,
     }
     for (i = 0; i < s.nstrs; i++)
         r->live_strings += s.strs[i]->rc != MERI_RC_IMMORTAL;
+    r->live_refs = meri_big_alive(&s);
 #ifdef MERI_PROFILE
     prof_dump();
 #endif
     meri_heap_clear(&s.heap);
     meri_state_free_strs(&s);
+    meri_big_free_all(&s);
 }

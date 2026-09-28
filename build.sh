@@ -211,6 +211,14 @@ if [ -d src ]; then
         compile "$src" "$obj" "${CFLAGS[@]}"
     done < <(find src -name '*.c' ! -name main.c ! -path 'src/third_party/*' |
         sort)
+    # the code of others, as it came (PROVENANCE in each directory): the
+    # flags of Meri but two warnings it does not follow
+    while IFS= read -r src; do
+        obj=$(objname "$src")
+        objs+=("$obj")
+        compile "$src" "$obj" "${CFLAGS[@]}" -Wno-sign-compare \
+            -Wno-unused-parameter
+    done < <(find src/third_party -name '*.c' 2>/dev/null | sort)
 fi
 rm -f "$OBJ/libmeri.a"
 libs=()

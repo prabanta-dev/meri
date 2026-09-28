@@ -1,0 +1,15 @@
+mini-gmp, from GMP 6.3.0 (https://gmplib.org/download/gmp/gmp-6.3.0.tar.xz,
+SHA-256 a3c2b80201b89e68616f4ad30bc66aee4927c3ce50e33929ca819d5c43538898,
+signature gmp-6.3.0.tar.xz.sig verified on 29 September 2026: good
+signature by Niels Möller, key 343C 2FF0 FBEE 5EC2 EDBE F399 F359 9FF8
+28C6 7298, made on 30 July 2023 while the key was valid).
+
+Files copied unchanged from gmp-6.3.0/: mini-gmp/mini-gmp.c,
+mini-gmp/mini-gmp.h, mini-gmp/README, COPYINGv2, COPYINGv3,
+COPYING.LESSERv3. mini-gmp is licensed under the GNU LGPL version 3 or
+later, or the GNU GPL version 2 or later, at the user's option; Meri,
+GPL-3.0-or-later, uses it under the GPL.
+
+build.sh compiles it with Meri's flags but -Wno-sign-compare and
+-Wno-unused-parameter, the two warnings it does not follow. Meri calls
+it only from src/vm/big.c.

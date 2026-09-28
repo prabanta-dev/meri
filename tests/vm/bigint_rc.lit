@@ -1,0 +1,52 @@
+; output: 25 75 100 123 1
+; result: 0
+; strings: 0
+; refs: 0
+; the numbers of BigInt counted as strings are: through a loop's
+; parameters and its exit edge, a typed slot of a record (store takes one
+; and releases the one it overwrites, release at ret), select, the store
+; of str_to_big; none alive at the end
+type %R = { ref @0, i64 @8 } size 16 align 8
+
+func @main : fn() -> i64 {
+  slot 16 align 8 type %R
+b0:
+  v0 = slot ptr $0
+  v1 = iconst i64 5
+  v2 = call.rt ref big_from_i64(v1)
+  v3 = call.rt ref big_mul(v2, v2)
+  store v3, v0
+  call.rt void print_big(v3)
+  v4 = iconst i32 32
+  call.rt void print_char(v4)
+  v5 = iconst i64 0
+  v6 = iconst i64 1
+  v7 = iconst i64 3
+  br b1(v3, v5)
+b1(v8: ref, v9: i64):
+  v10 = load ref v0
+  v11 = call.rt ref big_add(v8, v10)
+  v12 = add i64 v9, v6
+  v13 = icmp.eq i1 v12, v7
+  cbr v13, b2(v11), b1(v11, v12)
+b2(v14: ref):
+  v15 = call.rt ref big_sub(v14, v10)
+  call.rt void print_big(v15)
+  call.rt void print_char(v4)
+  store v14, v0
+  v16 = load ref v0
+  call.rt void print_big(v16)
+  call.rt void print_char(v4)
+  v17 = sconst str "123"
+  v18 = call.rt i1 str_to_big(v17, v0)
+  v19 = load ref v0
+  v20 = icmp.eq i1 v18, v18
+  v21 = select ref v20, v19, v2
+  call.rt void print_big(v21)
+  call.rt void print_char(v4)
+  v22 = zext i64 v18
+  call.rt void print_i64(v22)
+  call.rt void print_nl()
+  v23 = iconst i64 0
+  ret v23
+}

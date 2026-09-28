@@ -22,6 +22,8 @@ typedef struct {
     int64_t code;    /* its trap or halt code */
     meri_str **strs; /* the strings of the run alive, freed at the end */
     size_t nstrs, capstrs;
+    struct meri_big **bigs; /* the numbers of the run alive (big.c) */
+    size_t nbigs, capbigs;
     /* the memory of the program (blocks of mem_alloc, strings, globals,
        the slots of the calls alive) against its budget: past it, NOMEM */
     uint64_t used, budget;

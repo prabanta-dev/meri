@@ -24,13 +24,15 @@ typedef struct {
 
 #define MERI_RC_IMMORTAL UINT64_MAX
 
-/* one reference more on the string of v (0 and immortals: nothing) */
+/* one reference more on the counted value v, a string or a number of
+   big.h: both keep their count in their first word (0 and immortals:
+   nothing) */
 static inline void meri_str_retain(uint64_t v)
 {
-    meri_str *s = (meri_str *)(uintptr_t)v;
+    uint64_t *rc = (uint64_t *)(uintptr_t)v;
 
-    if (s && s->rc != MERI_RC_IMMORTAL)
-        s->rc++;
+    if (rc && *rc != MERI_RC_IMMORTAL)
+        ++*rc;
 }
 
 /* a new immortal string of n bytes copied from s (s may be NULL for

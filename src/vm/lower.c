@@ -304,9 +304,22 @@ static void parallel_copy(L *l, copy *c, uint32_t n)
     }
 }
 
+/* a counted handle: a str, or the ref of a BigInt (progetto_ir.md § 11d) */
+static bool counted(limba_id t)
+{
+    return t == LIMBA_T_STR || t == LIMBA_T_REF;
+}
+
 static bool is_str(const L *l, uint32_t v)
 {
-    return l->f->insts[v].type == LIMBA_T_STR;
+    return counted(l->f->insts[v].type);
+}
+
+/* the release of counted value v: of a str, or of a BigInt */
+static unsigned release_op(const L *l, uint32_t v)
+{
+    return l->f->insts[v].type == LIMBA_T_REF ? MERI_OP_RRELEASE
+                                              : MERI_OP_SRELEASE;
 }
 
 static void release_list(L *l, const meri_list *d)
@@ -314,8 +327,8 @@ static void release_list(L *l, const meri_list *d)
     uint32_t i;
 
     for (i = 0; i < d->n; i++)
-        emit(l, meri_abc(MERI_OP_SRELEASE, use(l, l->sp.pool[d->first + i], 0),
-                         0, 0));
+        emit(l, meri_abc(release_op(l, l->sp.pool[d->first + i]),
+                         use(l, l->sp.pool[d->first + i], 0), 0, 0));
 }
 
 /* the strings that stop living on edge i of the block being emitted */
@@ -357,7 +370,7 @@ static void edge_code(L *l, const limba_inst *t, uint32_t k, uint32_t i,
     }
     for (q = 0; q < d->n; q++)
         if (!moved[q])
-            emit(l, meri_abc(MERI_OP_SRELEASE,
+            emit(l, meri_abc(release_op(l, l->sp.pool[d->first + q]),
                              use(l, l->sp.pool[d->first + q], 0), 0, 0));
     free(moved);
     if (!n)
@@ -1217,7 +1230,7 @@ static bool hoistable(const limba_func *f, uint32_t v)
 
     return (fmt == LIMBA_F_ICONST || fmt == LIMBA_F_FCONST ||
             fmt == LIMBA_F_TYPED) &&
-           in->type != LIMBA_T_STR;
+           !counted(in->type);
 }
 
 /* the blocks that lie on a cycle of the CFG (in a strongly connected
@@ -1606,9 +1619,8 @@ static bool fold_addrs(L *l, const uint32_t *uses)
                 const uint32_t *u = &sp[s].o[j];
                 bool addr = (is_load(in) && u == o) ||
                             (in->op == LIMBA_OP_STORE && u == o + 1);
-                if (!addr || in->type == LIMBA_T_STR ||
-                    (in->op == LIMBA_OP_STORE &&
-                     f->insts[o[0]].type == LIMBA_T_STR))
+                if (!addr || counted(in->type) ||
+                    (in->op == LIMBA_OP_STORE && counted(f->insts[o[0]].type)))
                     other[*u] = 1;
             }
     }
@@ -1783,10 +1795,9 @@ static bool find_fusions(L *l)
                 uint32_t t = seq[k2];
                 const limba_inst *ti = &f->insts[t];
                 const uint32_t *ot = f->operands + ti->first;
-                bool load =
-                    is_load(ti) && ot[0] == a && ti->type != LIMBA_T_STR;
+                bool load = is_load(ti) && ot[0] == a && !counted(ti->type);
                 bool store = ti->op == LIMBA_OP_STORE && ot[1] == a &&
-                             ot[0] != a && f->insts[ot[0]].type != LIMBA_T_STR;
+                             ot[0] != a && !counted(f->insts[ot[0]].type);
                 if (load || store) {
                     l->ldx[t] = a;
                     absorb(l, a, t);
@@ -1825,7 +1836,7 @@ static bool find_fusions(L *l)
             const uint32_t *so = f->operands + si->first;
             if (si->op == LIMBA_OP_STORE && is_load(li) &&
                 f->operands[li->first] == so[1] &&
-                f->insts[so[0]].type == li->type && li->type != LIMBA_T_STR &&
+                f->insts[so[0]].type == li->type && !counted(li->type) &&
                 !l->fu.absorbed[seq[i + 1]])
                 l->fwd[seq[i + 1]] = so[0];
         }
@@ -2367,7 +2378,7 @@ static void inst_body(L *l, uint32_t id, uint32_t next)
         if (in->op == LIMBA_OP_SELECT) {
             emit(l, meri_abc(MERI_OP_SELECT, a, x, y));
             emit(l, z);
-            if (in->type == LIMBA_T_STR) /* a value of its own */
+            if (counted(in->type)) /* a value of its own */
                 emit(l, meri_abc(MERI_OP_SRETAIN, a, 0, 0));
         } else {
             emit(l,
@@ -2404,9 +2415,8 @@ static void inst_body(L *l, uint32_t id, uint32_t next)
                              (unsigned)off));
             return;
         }
-        emit(l,
-             meri_abc(in->type == LIMBA_T_STR ? MERI_OP_LDS : load_op(in->type),
-                      a, use(l, o[0], 0), 0));
+        emit(l, meri_abc(counted(in->type) ? MERI_OP_LDS : load_op(in->type), a,
+                         use(l, o[0], 0), 0));
         return;
     case LIMBA_F_STORE: {
         limba_id vt = f->insts[o[0]].type;
@@ -2421,7 +2431,9 @@ static void inst_body(L *l, uint32_t id, uint32_t next)
                              (unsigned)off));
             return;
         }
-        emit(l, meri_abc(vt == LIMBA_T_STR ? MERI_OP_STS : store_op(vt),
+        emit(l, meri_abc(vt == LIMBA_T_STR   ? MERI_OP_STS
+                         : vt == LIMBA_T_REF ? MERI_OP_STSR
+                                             : store_op(vt),
                          use(l, o[0], 0), use(l, o[1], 1), 0));
         return;
     }
