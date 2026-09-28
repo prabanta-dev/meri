@@ -84,5 +84,12 @@
   memset of a constant length (`MEMCPYK`, `MEMSETK`). A dangling check
   finds a small block without a division. Instructions run:
   k-nucleotide -12 %, binary-trees -14 %.
+- Outside loops, constants of 8 bits go into the instruction: add and
+  sub (`ADDK`, `ADDK32`, `ADD.OVK`, `ADD.OVK32`), a comparison fused
+  into its branch (`JEQK`, `JLTK`, `JLEK`), `ret` of a constant (`RETK`),
+  `mem_alloc` of a constant size (`ALLOCK`); inside loops the constants
+  are in registers already. The result of a call goes straight to its
+  register (`CALLND`), and `mem_free` is an instruction (`FREE`).
+  binary-trees runs 17 % fewer instructions.
 - The repository: build script (it builds Limba first, in the same
   variant, and links every program with its library), licence, style.

@@ -54,6 +54,7 @@ static void operands(FILE *out, const meri_fn *fn, uint32_t at)
     case MERI_FMT_BxX:
         fprintf(out, " r%" PRIu32 ", %u", x, MERI_W_BX(w));
         break;
+    case MERI_FMT_ABxND:
     case MERI_FMT_ABxN: {
         uint32_t n = x & 0xff, i;
         fprintf(out, " r%u, %u (", MERI_W_A(w), MERI_W_BX(w));
@@ -63,11 +64,21 @@ static void operands(FILE *out, const meri_fn *fn, uint32_t at)
                     (word >> (8 * (k % 4))) & 0xff);
         }
         fputc(')', out);
+        if (meri_ops[MERI_W_OP(w)].format == MERI_FMT_ABxND)
+            fprintf(out, " -> r%" PRIu32, fn->code[at + meri_n_words(n)]);
         break;
     }
     case MERI_FMT_ABkJ:
         fprintf(out, " r%u, r%u, k=%u -> %" PRId64, MERI_W_A(w), MERI_W_B(w),
                 MERI_W_C(w), (int64_t)at + 2 + MERI_W_SJ(x));
+        break;
+    case MERI_FMT_ABsC:
+        fprintf(out, " r%u, r%u, %d", MERI_W_A(w), MERI_W_B(w),
+                (int)MERI_W_SC(w));
+        break;
+    case MERI_FMT_AsBkJ:
+        fprintf(out, " r%u, %d, k=%u -> %" PRId64, MERI_W_A(w),
+                (int)MERI_W_SB(w), MERI_W_C(w), (int64_t)at + 2 + MERI_W_SJ(x));
         break;
     case MERI_FMT_ABCJ:
         fprintf(out, " r%u, r%u, r%u -> %" PRId64, MERI_W_A(w), MERI_W_B(w),
@@ -107,6 +118,8 @@ void meri_disasm(const meri_program *p, FILE *out)
             fputc('\n', out);
             at += meri_ops[op].format == MERI_FMT_ABxN
                       ? meri_n_words(fn->code[at + 1] & 0xff)
+                  : meri_ops[op].format == MERI_FMT_ABxND
+                      ? meri_n_words(fn->code[at + 1] & 0xff) + 1
                       : meri_fmt_words(meri_ops[op].format);
         }
     }

@@ -33,7 +33,10 @@ enum meri_fmt {
     /* A Bx, then the arguments: a word with their number n in its low
        byte and up to 3 registers, then words of 4 registers */
     MERI_FMT_ABxN,
-    MERI_FMT_ABCJ, /* A B C, then a JMP */
+    MERI_FMT_ABCJ,  /* A B C, then a JMP */
+    MERI_FMT_ABsC,  /* C a constant of 8 bits with a sign */
+    MERI_FMT_AsBkJ, /* B a constant of 8 bits with a sign, C the k; a JMP */
+    MERI_FMT_ABxND, /* MERI_FMT_ABxN, then a word: a register */
 };
 
 enum meri_op {
@@ -53,7 +56,21 @@ extern const meri_op_info meri_ops[MERI_OP_COUNT];
 /* the words of a format (for MERI_FMT_ABxN the fewest: see meri_words) */
 static inline unsigned meri_fmt_words(unsigned fmt)
 {
-    return fmt >= MERI_FMT_ABC_X ? 2 : 1;
+    switch (fmt) {
+    case MERI_FMT_ABC_X:
+    case MERI_FMT_AB_X:
+    case MERI_FMT_AkJ:
+    case MERI_FMT_ABkJ:
+    case MERI_FMT_MOVW:
+    case MERI_FMT_BxX:
+    case MERI_FMT_ABxN:
+    case MERI_FMT_ABxND:
+    case MERI_FMT_ABCJ:
+    case MERI_FMT_AsBkJ:
+        return 2;
+    default:
+        return 1;
+    }
 }
 
 /* the words of an instruction whose second word, if any, is x */
@@ -66,6 +83,8 @@ static inline unsigned meri_n_words(uint32_t n)
 #define MERI_W_A(w) (((w) >> 8) & 0xffu)
 #define MERI_W_B(w) (((w) >> 16) & 0xffu)
 #define MERI_W_C(w) ((w) >> 24)
+#define MERI_W_SB(w) ((int32_t)(int8_t)(uint8_t)((w) >> 16))
+#define MERI_W_SC(w) ((int32_t)(int8_t)(uint8_t)((w) >> 24))
 #define MERI_W_BX(w) ((w) >> 16)
 #define MERI_W_SBX(w) ((int32_t)(int16_t)(uint16_t)((w) >> 16))
 #define MERI_W_SJ(w) ((int32_t)(w) >> 8)

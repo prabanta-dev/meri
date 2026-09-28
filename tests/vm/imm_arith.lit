@@ -1,0 +1,72 @@
+; output: 13 5 -122 17 2147483646 -2147483648 -7 300 16
+; result: 0
+; outside loops, add and sub with a constant of 8 bits (ADDK, ADDK32,
+; ADD.OVK, ADD.OVK32), the constant on either side of an add; ret of a
+; constant (RETK); mem_alloc of a constant size (ALLOCK); the result of a
+; call straight to its register (CALLND)
+func @f : fn(i64, i32) -> void {
+b0(v0: i64, v1: i32):
+  v2 = iconst i64 3
+  v3 = add.ov i64 v0, v2
+  call.rt void print_i64(v3)
+  v4 = iconst i32 32
+  call.rt void print_char(v4)
+  v5 = iconst i64 5
+  v6 = sub.ov i64 v0, v5
+  call.rt void print_i64(v6)
+  call.rt void print_char(v4)
+  v7 = iconst i64 -127
+  v8 = add i64 v7, v6
+  call.rt void print_i64(v8)
+  call.rt void print_char(v4)
+  v9 = iconst i64 7
+  v10 = add.ov i64 v9, v0
+  call.rt void print_i64(v10)
+  call.rt void print_char(v4)
+  v11 = iconst i32 1
+  v12 = sub.ov i32 v1, v11
+  v13 = sext i64 v12
+  call.rt void print_i64(v13)
+  call.rt void print_char(v4)
+  v14 = add i32 v1, v11
+  v15 = sext i64 v14
+  call.rt void print_i64(v15)
+  call.rt void print_char(v4)
+  ret
+}
+
+func @neg : fn() -> i64 {
+b0:
+  v0 = iconst i64 -7
+  ret v0
+}
+
+func @big : fn() -> i64 {
+b0:
+  v0 = iconst i64 300
+  ret v0
+}
+
+func @main : fn() -> i64 {
+b0:
+  v0 = iconst i64 10
+  v1 = iconst i32 2147483647
+  call void @f(v0, v1)
+  v2 = call i64 @neg()
+  call.rt void print_i64(v2)
+  v3 = iconst i32 32
+  call.rt void print_char(v3)
+  v4 = call i64 @big()
+  call.rt void print_i64(v4)
+  call.rt void print_char(v3)
+  v5 = iconst i64 16
+  v6 = call.rt ptr mem_alloc(v5)
+  v7 = iconst i64 8
+  v8 = addr ptr v6, v7, 1, 0
+  store v5, v8
+  v9 = load i64 v8
+  call.rt void print_i64(v9)
+  call.rt void print_nl()
+  v10 = iconst i64 0
+  ret v10
+}

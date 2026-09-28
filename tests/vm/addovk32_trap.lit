@@ -1,0 +1,17 @@
+; trap: 6
+; sub.ov i32 of a constant of 8 bits (ADD.OVK32 of its negation)
+; overflows at the i32 limit, not at the i64 one
+func @main : fn() -> i64 {
+b0:
+  v0 = iconst i32 -2147483648
+  v1 = call i32 @id(v0)
+  v2 = iconst i32 1
+  v3 = sub.ov i32 v1, v2
+  v4 = sext i64 v3
+  ret v4
+}
+
+func @id : fn(i32) -> i32 {
+b0(v0: i32):
+  ret v0
+}

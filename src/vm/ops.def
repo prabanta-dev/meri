@@ -226,3 +226,23 @@ MERI_OP(MEMCPYK, "memcpyk", MERI_FMT_ABC)
 MERI_OP(MEMSETK, "memsetk", MERI_FMT_ABC)
 /* ptr_live: R[A] = 1 if R[B] is the pointer of a block alive, else 0 */
 MERI_OP(LIVE, "live", MERI_FMT_AB)
+/* a constant sC of 8 bits with a sign, outside loops (inside them the
+   constants are in registers before block 0): R[A] = R[B] + sC, modulo
+   2^64 or 2^32 sign-extended, or OVERFLOW */
+MERI_OP(ADDK, "addk", MERI_FMT_ABsC)
+MERI_OP(ADDK32, "addk32", MERI_FMT_ABsC)
+MERI_OP(ADDOVK, "add.ovk", MERI_FMT_ABsC)
+MERI_OP(ADDOVK32, "add.ovk32", MERI_FMT_ABsC)
+/* test and jump on R[A] and sB (signed): the JMP after it taken when the
+   condition is k (C) */
+MERI_OP(JEQK, "jeqk", MERI_FMT_AsBkJ)
+MERI_OP(JLTK, "jltk", MERI_FMT_AsBkJ)
+MERI_OP(JLEK, "jlek", MERI_FMT_AsBkJ)
+/* return the constant sBx */
+MERI_OP(RETK, "retk", MERI_FMT_AsBx)
+/* ALLOC of Bx bytes, a constant */
+MERI_OP(ALLOCK, "allock", MERI_FMT_ABx)
+/* CALLN whose result goes to R[D], D the word after the arguments */
+MERI_OP(CALLND, "callnd", MERI_FMT_ABxND)
+/* mem_free R[A]: INVALID_FREE if it is not a block alive (0: nothing) */
+MERI_OP(FREE, "free", MERI_FMT_A)

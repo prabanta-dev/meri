@@ -1,0 +1,19 @@
+; trap: 7
+; mem_alloc of a constant size (ALLOCK) counts against the budget: a
+; recursion keeping 60000 bytes a call stops with NOMEM at the 64 MiB of
+; test_vm, about 1100 calls deep (lir_run, with 1 GiB, reaches its
+; limit of calls first)
+func @f : fn() -> void {
+b0:
+  v0 = iconst i64 60000
+  v1 = call.rt ptr mem_alloc(v0)
+  call void @f()
+  ret
+}
+
+func @main : fn() -> i64 {
+b0:
+  call void @f()
+  v0 = iconst i64 0
+  ret v0
+}

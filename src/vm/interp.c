@@ -43,6 +43,8 @@ typedef struct {
     const meri_fn *fn;
     uint64_t *base;
     uint8_t *slots, *slot_top;
+    uint64_t *dst; /* the caller's register for the result (CALLND), or
+                      NULL: then it is the first of the callee's window */
 } frame;
 
 static void *reserve(size_t bytes)
@@ -491,6 +493,8 @@ static void run(meri_state *s, const meri_fn *entry, void **globals,
     int64_t code = 0;
     uint64_t result;
     uint32_t w, x, ca = 0;
+    uint64_t *dst = NULL; /* of the next call: see frame */
+    bool nd = false;
 
     ip = fn->code;
     code = LIMBA_TRAP_NOMEM;
@@ -985,6 +989,13 @@ op_CALLN:
     ip = pc - 1;
     callee = &p->fns[MERI_W_BX(w)];
     ca = MERI_W_A(w);
+    nd = false;
+    goto copy_args;
+op_CALLND:
+    ip = pc - 1;
+    callee = &p->fns[MERI_W_BX(w)];
+    ca = MERI_W_A(w);
+    nd = true;
     goto copy_args;
 op_CALLRTN:
     ip = pc - 1;
@@ -1000,8 +1011,11 @@ copy_args: {
             word = *pc++;
         to[i2] = base[(word >> (8 * (kk % 4))) & 0xff];
     }
-    if (callee)
+    if (callee) {
+        if (nd) /* the register of the result, in the word after */
+            dst = base + *pc++;
         goto call;
+    }
     PROF_RT(MERI_W_BX(w));
     if (!meri_rt_call(s, MERI_W_BX(w), to)) {
         r->status = s->status;
@@ -1058,7 +1072,8 @@ call: {
         meri_state_give(s, callee->slot_size);
         TRAP(LIMBA_TRAP_STACK);
     }
-    frames[depth++] = (frame){pc, fn, base, slots, slot_top};
+    frames[depth++] = (frame){pc, fn, base, slots, slot_top, dst};
+    dst = NULL;
     memset(ns, 0, callee->slot_size);
     fn = callee;
     base = nb;
@@ -1101,6 +1116,8 @@ ret:
     base = frames[depth].base;
     slots = frames[depth].slots;
     slot_top = frames[depth].slot_top;
+    if (frames[depth].dst)
+        *frames[depth].dst = result;
     k = fn->k;
     NEXT;
 
@@ -1351,6 +1368,59 @@ op_MEMSETK: {
 op_LIVE:
     RA = meri_heap_live(&s->heap, RB);
     NEXT;
+op_ADDK:
+    RA = RB + (uint64_t)(int64_t)MERI_W_SC(w);
+    NEXT;
+op_ADDK32:
+    RA = s32(RB + (uint64_t)(int64_t)MERI_W_SC(w));
+    NEXT;
+op_ADDOVK: {
+    int64_t v;
+    ip = pc - 1;
+    if (__builtin_add_overflow((int64_t)RB, (int64_t)MERI_W_SC(w), &v))
+        TRAP(LIMBA_TRAP_OVERFLOW);
+    RA = (uint64_t)v;
+    NEXT;
+}
+op_ADDOVK32: {
+    int64_t v = (int64_t)RB + MERI_W_SC(w);
+    ip = pc - 1;
+    if (v < INT32_MIN || v > INT32_MAX)
+        TRAP(LIMBA_TRAP_OVERFLOW);
+    RA = (uint64_t)v;
+    NEXT;
+}
+op_JEQK:
+    JUMP_IF((int64_t)RA == MERI_W_SB(w), MERI_W_C(w));
+op_JLTK:
+    JUMP_IF((int64_t)RA < MERI_W_SB(w), MERI_W_C(w));
+op_JLEK:
+    JUMP_IF((int64_t)RA <= MERI_W_SB(w), MERI_W_C(w));
+op_RETK:
+    result = (uint64_t)(int64_t)MERI_W_SBX(w);
+    base[0] = result;
+    goto ret;
+op_ALLOCK: {
+    uint64_t n = MERI_W_BX(w), c = meri_heap_charge(n), q;
+    ip = pc - 1;
+    if (!meri_state_take(s, c))
+        TRAP(LIMBA_TRAP_NOMEM);
+    q = meri_heap_alloc(&s->heap, n);
+    if (!q) {
+        meri_state_give(s, c);
+        TRAP(LIMBA_TRAP_NOMEM);
+    }
+    RA = q;
+    NEXT;
+}
+op_FREE: {
+    uint64_t size;
+    ip = pc - 1;
+    if (!meri_heap_free(&s->heap, RA, &size))
+        TRAP(LIMBA_TRAP_INVALID_FREE);
+    meri_state_give(s, size);
+    NEXT;
+}
 op_PUTC: {
     uint32_t c = (uint32_t)RA;
     char b8[4];
