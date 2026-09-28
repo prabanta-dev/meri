@@ -100,5 +100,8 @@
   forgotten when a large block is freed: k-nucleotide's table no longer
   costs two lookups an access (24 % fewer cycles). The mod of Luxia,
   seven instructions of the IR, is one (`SMOD`, `SMOD32`).
+- A load right after a store to the same address, of the same type, is
+  the value stored, in its register; a call without arguments returns
+  straight to its register too (`CALLND`).
 - The repository: build script (it builds Limba first, in the same
   variant, and links every program with its library), licence, style.
