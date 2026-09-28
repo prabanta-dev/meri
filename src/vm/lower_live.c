@@ -119,6 +119,43 @@ uint64_t meri_norm(uint64_t v, limba_id t)
     return (uint64_t)((int64_t)(v << (64 - bits)) >> (64 - bits));
 }
 
+/* ---- pointers into strings ---- */
+
+uint32_t meri_str_of_ptr(const limba_func *f, uint32_t v)
+{
+    const limba_inst *in = &f->insts[v];
+
+    while (in->op == LIMBA_OP_ADDR) {
+        v = f->operands[in->first];
+        in = &f->insts[v];
+    }
+    if (in->op == LIMBA_OP_CALLRT && in->imm == LIMBA_RT_STR_PTR &&
+        in->nops == 1)
+        return f->operands[in->first];
+    return LIMBA_NONE;
+}
+
+/* the str each value points into, LIMBA_NONE for none; NULL if f has no
+   str_ptr (or memory is exhausted: then false) */
+static bool keeps_make(const limba_func *f, uint32_t **keep)
+{
+    uint32_t i;
+    bool any = false;
+
+    *keep = NULL;
+    for (i = 0; i < f->ninsts && !any; i++)
+        any = f->insts[i].op == LIMBA_OP_CALLRT &&
+              f->insts[i].imm == LIMBA_RT_STR_PTR;
+    if (!any)
+        return true;
+    *keep = malloc(((size_t)f->ninsts + 1) * sizeof(uint32_t));
+    if (!*keep)
+        return false;
+    for (i = 0; i < f->ninsts; i++)
+        (*keep)[i] = meri_str_of_ptr(f, i);
+    return true;
+}
+
 /* ---- liveness ---- */
 
 typedef struct {
@@ -127,6 +164,10 @@ typedef struct {
     uint64_t *in, *out, *use, *def; /* per block */
     uint32_t *pos;                  /* per value: its number */
     uint32_t *bstart, *bend;        /* per block */
+    /* per value: the str it points into (a use of it is a use of that
+       str too, so the str lives while the pointer is used), LIMBA_NONE;
+       NULL for none at all */
+    uint32_t *keep;
 } live;
 
 static uint64_t *set_of(uint64_t *sets, size_t words, uint32_t b)
@@ -164,7 +205,7 @@ static bool live_init(live *l, const limba_func *f, const uint8_t *hoist,
     l->bstart = calloc((size_t)f->nblocks + 1, sizeof(uint32_t));
     l->bend = calloc((size_t)f->nblocks + 1, sizeof(uint32_t));
     if (!l->in || !l->out || !l->use || !l->def || !l->pos || !l->bstart ||
-        !l->bend)
+        !l->bend || !keeps_make(f, &l->keep))
         return false;
     if (hoist && f->nblocks)
         for (k = 0; k < f->ninsts; k++)
@@ -192,9 +233,14 @@ static bool live_init(live *l, const limba_func *f, const uint8_t *hoist,
                 continue;       /* no operands, defined in block 0 */
             }
             for (s = 0; s < ns; s++)
-                for (j = 0; j < sp[s].n; j++)
-                    if (!set_has(def, sp[s].o[j]))
-                        set_add(use, sp[s].o[j]);
+                for (j = 0; j < sp[s].n; j++) {
+                    uint32_t u = sp[s].o[j];
+                    if (!set_has(def, u))
+                        set_add(use, u);
+                    if (l->keep && l->keep[u] != LIMBA_NONE &&
+                        !set_has(def, l->keep[u]))
+                        set_add(use, l->keep[u]);
+                }
             if (meri_has_value(in))
                 set_add(def, id);
         }
@@ -245,6 +291,7 @@ static void live_free(live *l)
     free(l->pos);
     free(l->bstart);
     free(l->bend);
+    free(l->keep);
 }
 
 /* ---- intervals and registers ---- */
@@ -429,13 +476,17 @@ bool meri_alloc_regs(const limba_func *f, uint32_t max, uint32_t skip,
     for (i = 0; i < f->ninsts; i++) {
         meri_span sp[3];
         uint32_t ns = meri_value_spans(f, &f->insts[i], sp);
+        uint32_t where =
+            l.pos[fu && fu->anchor[i] != LIMBA_NONE ? fu->anchor[i] : i];
         for (s = 0; s < ns; s++)
-            for (j = 0; j < sp[s].n; j++)
-                if (at[sp[s].o[j]] != UINT32_MAX)
-                    widen(
-                        &iv[at[sp[s].o[j]]],
-                        l.pos[fu && fu->anchor[i] != LIMBA_NONE ? fu->anchor[i]
-                                                                : i]);
+            for (j = 0; j < sp[s].n; j++) {
+                uint32_t u = sp[s].o[j];
+                if (at[u] != UINT32_MAX)
+                    widen(&iv[at[u]], where);
+                if (l.keep && l.keep[u] != LIMBA_NONE &&
+                    at[l.keep[u]] != UINT32_MAX)
+                    widen(&iv[at[l.keep[u]]], where);
+            }
     }
     for (b = 0; b < f->nblocks; b++) {
         const uint64_t *in = set_of(l.in, l.words, b);
@@ -623,8 +674,11 @@ bool meri_str_plan(const limba_func *f, meri_strplan *p)
         memcpy(now, set_of(l.out, l.words, b), l.words * sizeof(uint64_t));
         ns = meri_value_spans(f, term, sp);
         for (s = 0; s < ns; s++)
-            for (j = 0; j < sp[s].n; j++)
+            for (j = 0; j < sp[s].n; j++) {
                 set_add(now, sp[s].o[j]);
+                if (l.keep && l.keep[sp[s].o[j]] != LIMBA_NONE)
+                    set_add(now, l.keep[sp[s].o[j]]);
+            }
 
         p->edge_at[b] = e;
         if (term->op == LIMBA_OP_RET) {
@@ -659,13 +713,20 @@ bool meri_str_plan(const limba_func *f, meri_strplan *p)
             for (s = 0; s < ns; s++)
                 for (j = 0; j < sp[s].n; j++) {
                     uint32_t u = sp[s].o[j];
+                    uint32_t kv = l.keep ? l.keep[u] : LIMBA_NONE;
                     if (is_str(f, u) && !set_has(now, u) &&
                         !plan_add(p, &p->after[id], u))
                         goto done;
+                    if (kv != LIMBA_NONE && !set_has(now, kv) &&
+                        !plan_add(p, &p->after[id], kv))
+                        goto done;
                 }
             for (s = 0; s < ns; s++)
-                for (j = 0; j < sp[s].n; j++)
+                for (j = 0; j < sp[s].n; j++) {
                     set_add(now, sp[s].o[j]);
+                    if (l.keep && l.keep[sp[s].o[j]] != LIMBA_NONE)
+                        set_add(now, l.keep[sp[s].o[j]]);
+                }
         }
         begin(p, &p->start[b]);
         for (k = 0; k < bl->nparams; k++) {

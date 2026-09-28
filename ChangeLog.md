@@ -70,5 +70,11 @@
   displacement of its load or store, `ADDI`, or the register of its base;
   a copy may share the register of any parameter of a block. Instructions
   run: from -13 % (k-nucleotide) to -22 % (binary-trees).
+- A pointer given by `str_ptr` keeps its string alive while it is used:
+  a string whose last use was `str_ptr` was freed before its bytes were
+  read (Limba's `s[i]` on a temporary string, and `str_ptr` taken out of
+  a loop). Such a pointer may go only to an `addr`, a load or store
+  address, `memcpy`, `memset` or a call; elsewhere the function is
+  refused. `load.inv` (IR of Limba d5d3ab8) runs as a load.
 - The repository: build script (it builds Limba first, in the same
   variant, and links every program with its library), licence, style.

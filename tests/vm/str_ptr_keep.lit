@@ -1,0 +1,41 @@
+; output: 98 abc
+; result: 0
+; strings: 0
+; a pointer given by str_ptr keeps its str alive while it is used
+; (lower_live.c): here the str is a concatenation, its only owner, and
+; str_ptr is its last use; the bytes are read after it, once as Luxia
+; reads s[i] and once in a loop, with str_ptr before it as licm leaves
+; it. Under asan an early release is a read of freed memory
+func @main : fn() -> i64 {
+b0:
+  v0 = sconst str "ab"
+  v1 = sconst str "c"
+  v2 = call.rt str str_concat(v0, v1)
+  v3 = iconst i64 2
+  v4 = call.rt ptr str_ptr(v2)
+  v5 = addr ptr v4, v3, 1, -1
+  v6 = load i8 v5
+  v7 = zext i64 v6
+  call.rt void print_i64(v7)
+  v8 = iconst i32 32
+  call.rt void print_char(v8)
+  v9 = call.rt str str_concat(v0, v1)
+  v10 = call.rt i64 str_len(v9)
+  v11 = call.rt ptr str_ptr(v9)
+  v12 = iconst i64 1
+  br b1(v12)
+b1(v13: i64):
+  v14 = addr ptr v11, v13, 1, -1
+  v15 = load i8 v14
+  v16 = zext i32 v15
+  call.rt void print_char(v16)
+  v17 = icmp.eq i1 v13, v10
+  cbr v17, b3, b2
+b2:
+  v18 = add i64 v13, v12
+  br b1(v18)
+b3:
+  call.rt void print_nl()
+  v19 = iconst i64 0
+  ret v19
+}

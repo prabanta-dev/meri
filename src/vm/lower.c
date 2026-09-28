@@ -1045,6 +1045,56 @@ static bool math1(L *l, uint32_t id, const limba_inst *in)
     return true;
 }
 
+/* a pointer into the bytes of a str (meri_str_of_ptr) keeps the str
+   alive where it is used, so it may go only where that use is seen: the
+   base of an addr, the address of a load or a store, memcpy, memset, the
+   argument of a call. Anywhere else (a jump, a store of the pointer, a
+   select, a return) the str could be freed while the pointer lives: the
+   function is refused */
+static bool str_ptrs_stay(L *l)
+{
+    const limba_func *f = l->f;
+    uint32_t i, s, j;
+
+    for (i = 0; i < f->ninsts; i++) {
+        const limba_inst *in = &f->insts[i];
+        const uint32_t *o = f->operands + in->first;
+        meri_span sp[3];
+        uint32_t ns = meri_value_spans(f, in, sp);
+        for (s = 0; s < ns; s++)
+            for (j = 0; j < sp[s].n; j++) {
+                uint32_t u = sp[s].o[j];
+                bool ok;
+                if (meri_str_of_ptr(f, u) == LIMBA_NONE)
+                    continue;
+                switch (in->op) {
+                case LIMBA_OP_ADDR:
+                    ok = &sp[s].o[j] == o;
+                    break;
+                case LIMBA_OP_LOAD:
+                case LIMBA_OP_LOADINV:
+                case LIMBA_OP_MEMCPY:
+                case LIMBA_OP_MEMSET:
+                    ok = true;
+                    break;
+                case LIMBA_OP_STORE:
+                    ok = &sp[s].o[j] == o + 1;
+                    break;
+                default:
+                    ok = (limba_ops[in->op].flags & LIMBA_OPF_CALL) != 0;
+                }
+                if (!ok) {
+                    fail(l,
+                         "v%" PRIu32 " points into a str and goes to %s: "
+                         "not supported",
+                         u, limba_ops[in->op].text);
+                    return false;
+                }
+            }
+    }
+    return true;
+}
+
 /* the ptr_live whose only use is the check right after it: fused */
 static bool find_chklive(L *l)
 {
@@ -1084,6 +1134,13 @@ static bool find_chklive(L *l)
 }
 
 /* ---- fusions: sequences that become one instruction ---- */
+
+/* load or load.inv: for an engine the same (load.inv only tells an
+   optimisation that the memory does not change while its block lives) */
+static bool is_load(const limba_inst *in)
+{
+    return in->op == LIMBA_OP_LOAD || in->op == LIMBA_OP_LOADINV;
+}
 
 static bool is_const(const limba_func *f, uint32_t v)
 {
@@ -1410,8 +1467,8 @@ static bool find_fusions(L *l)
                 uint32_t t = seq[k2];
                 const limba_inst *ti = &f->insts[t];
                 const uint32_t *ot = f->operands + ti->first;
-                bool load = ti->op == LIMBA_OP_LOAD && ot[0] == a &&
-                            ti->type != LIMBA_T_STR;
+                bool load =
+                    is_load(ti) && ot[0] == a && ti->type != LIMBA_T_STR;
                 bool store = ti->op == LIMBA_OP_STORE && ot[1] == a &&
                              ot[0] != a && f->insts[ot[0]].type != LIMBA_T_STR;
                 if (load || store) {
@@ -1606,7 +1663,7 @@ static bool indexed(L *l, uint32_t id, const limba_inst *in, unsigned a)
         /* base + a constant: the displacement of ld, st */
         base = l->f->operands[l->f->insts[l->ldx[id]].first];
         rb = use(l, base, 1);
-        if (in->op == LIMBA_OP_LOAD)
+        if (is_load(in))
             emit(l, meri_abc(load_op(in->type), a, rb, (unsigned)off));
         else
             emit(l, meri_abc(store_op(l->f->insts[o[0]].type), use(l, o[0], 0),
@@ -1616,7 +1673,7 @@ static bool indexed(L *l, uint32_t id, const limba_inst *in, unsigned a)
     addr_parts(l, l->ldx[id], &base, &idx, &kx);
     rb = use(l, base, 1);
     ri = use(l, idx, 2);
-    if (in->op == LIMBA_OP_LOAD) {
+    if (is_load(in)) {
         emit(l, meri_abc(ldx_op(in->type), a, rb, ri));
     } else {
         rv = use(l, o[0], 0);
@@ -2050,6 +2107,10 @@ static void function(meri_program *p, uint32_t fid, meri_diag *d)
 
     fn->type = f->type;
     fn->nparams = p->m->types[f->type].count;
+    if (body && !str_ptrs_stay(&l)) {
+        p->failed = true;
+        return;
+    }
     if (body && !find_fusions(&l)) {
         fail(&l, "out of memory");
         p->failed = true;

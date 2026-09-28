@@ -92,6 +92,12 @@ typedef struct {
 bool meri_str_plan(const limba_func *f, meri_strplan *p);
 void meri_strplan_free(meri_strplan *p);
 
+/* the str whose bytes v points into: str_ptr(s), or an addr of such a
+   pointer; LIMBA_NONE for any other value. The engine keeps s alive while
+   such a pointer is used (lower_live.c): the pointer of str_ptr is valid
+   only as long as s has a reference */
+uint32_t meri_str_of_ptr(const limba_func *f, uint32_t v);
+
 /* the canonical form of v as an integer of type t: sign-extended from its
    width, 0 or 1 for i1 */
 uint64_t meri_norm(uint64_t v, limba_id t);
