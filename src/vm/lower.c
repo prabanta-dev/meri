@@ -1710,9 +1710,9 @@ static bool find_fusions(L *l)
                 absorb(l, w[0], w[3]);
                 absorb(l, w[1], w[3]);
                 absorb(l, w[2], w[3]);
-                /* sub i, lo right after it: CHKRS, if lo is no constant
-                   (then the sub folds into the addr) */
-                if (i + 4 < ns && !is_const(f, lo)) {
+                /* sub i, lo right after it: CHKRS (unless it folds
+                   into an addr: then it is not emitted, not next) */
+                if (i + 4 < ns) {
                     const limba_inst *si = &f->insts[w[4]];
                     const uint32_t *os = f->operands + si->first;
                     if (si->op == LIMBA_OP_SUB && bits_of(si->type) == 64 &&
@@ -2148,11 +2148,26 @@ static bool range(L *l, uint32_t id, const limba_inst *in)
         uint32_t sb = l->rsub[id];
         /* with the sub i, lo right after it (CHKRS): nothing is emitted
            between them (a check reads an i1, so no string dies at it) */
-        if (sb != LIMBA_NONE && !l->wide && next_inst(l) == sb) {
+        uint32_t nx = next_inst(l);
+        if (sb != LIMBA_NONE && !l->wide && nx == sb) {
             emit(l, meri_abc(MERI_OP_CHKRS, ri, rl, rh));
             emit(l, konst(l, (uint64_t)in->imm) | (uint32_t)reg(l, sb) << 16);
             l->done[sb] = 1;
             return true;
+        }
+        /* with an addr of the index right after it (CHKADDR) */
+        if (!l->wide && nx != LIMBA_NONE && f->insts[nx].op == LIMBA_OP_ADDR &&
+            !(l->fu.alias && l->fu.alias[nx] != LIMBA_NONE)) {
+            uint32_t base, idx, kx;
+            addr_parts(l, nx, &base, &idx, &kx);
+            if (idx == x) {
+                emit(l, meri_abc(MERI_OP_CHKADDR, reg(l, nx), ri,
+                                 use(l, base, 3)));
+                emit(l, rl | rh << 8 | konst(l, (uint64_t)in->imm) << 16);
+                emit(l, kx);
+                l->done[nx] = 1;
+                return true;
+            }
         }
         emit(l, meri_abc(MERI_OP_CHKR, ri, rl, rh));
         emit(l, konst(l, (uint64_t)in->imm));

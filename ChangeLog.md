@@ -115,5 +115,8 @@
   instruction fused into a later one are released after that one.
 - Outside loops, sdiv by a constant of 2 to 127 carries it (`SDIVK`), a
   power of two by a shift that truncates toward zero as sdiv does.
+- A range check with limits in registers and the addr of its index right
+  after it are one instruction (`CHKADDR`, three words); `CHKRS` also
+  with a constant lower limit, when its sub is not folded into an addr.
 - The repository: build script (it builds Limba first, in the same
   variant, and links every program with its library), licence, style.

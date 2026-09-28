@@ -1500,6 +1500,17 @@ op_SDIVK: {
     }
     NEXT;
 }
+op_CHKADDR: {
+    int64_t v = (int64_t)RB;
+    uint32_t y;
+    ip = pc - 1;
+    x = *pc++;
+    y = *pc++;
+    if (!((int64_t)base[x & 0xff] <= v && v <= (int64_t)base[x >> 8 & 0xff]))
+        TRAP((int64_t)k[x >> 16]);
+    RA = RC + RB * k[y] + k[y + 1];
+    NEXT;
+}
 op_PUTC: {
     uint32_t c = (uint32_t)RA;
     char b8[4];

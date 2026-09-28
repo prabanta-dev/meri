@@ -33,10 +33,11 @@ enum meri_fmt {
     /* A Bx, then the arguments: a word with their number n in its low
        byte and up to 3 registers, then words of 4 registers */
     MERI_FMT_ABxN,
-    MERI_FMT_ABCJ,  /* A B C, then a JMP */
-    MERI_FMT_ABsC,  /* C a constant of 8 bits with a sign */
-    MERI_FMT_AsBkJ, /* B a constant of 8 bits with a sign, C the k; a JMP */
-    MERI_FMT_ABxND, /* MERI_FMT_ABxN, then a word: a register */
+    MERI_FMT_ABCJ,   /* A B C, then a JMP */
+    MERI_FMT_ABsC,   /* C a constant of 8 bits with a sign */
+    MERI_FMT_AsBkJ,  /* B a constant of 8 bits with a sign, C the k; a JMP */
+    MERI_FMT_ABxND,  /* MERI_FMT_ABxN, then a word: a register */
+    MERI_FMT_ABC_XY, /* A B C, then two words X and Y */
 };
 
 enum meri_op {
@@ -68,6 +69,8 @@ static inline unsigned meri_fmt_words(unsigned fmt)
     case MERI_FMT_ABCJ:
     case MERI_FMT_AsBkJ:
         return 2;
+    case MERI_FMT_ABC_XY:
+        return 3;
     default:
         return 1;
     }

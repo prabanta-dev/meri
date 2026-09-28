@@ -269,3 +269,7 @@ MERI_OP(LDXU8, "ldxu8", MERI_FMT_ABC_X)
 /* sdiv (i64 or i32) by a constant C of 2 to 127, outside loops: no trap
    possible; a power of two by a shift that truncates as sdiv */
 MERI_OP(SDIVK, "sdivk", MERI_FMT_ABsC)
+/* a range check of the index R[B] (lo in R[X & 0xff], hi in
+   R[X >> 8 & 0xff], the trap K[X >> 16]) and the addr after it:
+   R[A] = R[C] + R[B] * K[Y] + K[Y + 1] */
+MERI_OP(CHKADDR, "chkaddr", MERI_FMT_ABC_XY)
