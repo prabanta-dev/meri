@@ -1,0 +1,50 @@
+; output: 5 99 6 1 6
+; result: 0
+; an addr of a constant displacement used only as the address of loads
+; and stores is folded into each (ld, st with a displacement), and its
+; base lives wherever the addr is used, here a block later, past other
+; values; an addr used as a value too, or stored as one, is not folded
+func @main : fn() -> i64 {
+b0:
+  v0 = iconst i64 16
+  v1 = call.rt ptr mem_alloc(v0)
+  v2 = iconst i64 8
+  v3 = addr ptr v1, v2, 1, 0
+  v4 = iconst i64 5
+  store v4, v3
+  br b1
+b1:
+  v5 = iconst i64 99
+  v6 = call.rt ptr mem_alloc(v0)
+  store v5, v6
+  v7 = add i64 v5, v4
+  v8 = mul i64 v7, v5
+  v9 = load i64 v3
+  call.rt void print_i64(v9)
+  v10 = iconst i32 32
+  call.rt void print_char(v10)
+  v11 = load i64 v6
+  call.rt void print_i64(v11)
+  call.rt void print_char(v10)
+  v12 = addr ptr v6, v2, 1, 0
+  v13 = iconst i64 6
+  store v13, v12
+  v14 = load i64 v12
+  call.rt void print_i64(v14)
+  call.rt void print_char(v10)
+  v15 = ptrtoint i64 v12
+  v16 = ptrtoint i64 v6
+  v17 = sub i64 v15, v16
+  v18 = icmp.eq i1 v17, v2
+  v19 = zext i64 v18
+  call.rt void print_i64(v19)
+  call.rt void print_char(v10)
+  v21 = addr ptr v6, v2, 1, 0
+  store v21, v1
+  v22 = load ptr v1
+  v23 = load i64 v22
+  call.rt void print_i64(v23)
+  call.rt void print_nl()
+  v20 = iconst i64 0
+  ret v20
+}

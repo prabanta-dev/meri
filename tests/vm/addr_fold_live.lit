@@ -1,0 +1,22 @@
+; output: 42
+; result: 0
+; the base of a folded addr, used by nothing else, lives until the last
+; load through the addr: a block allocated after it must not take its
+; register
+func @main : fn() -> i64 {
+b0:
+  v0 = iconst i64 16
+  v1 = call.rt ptr mem_alloc(v0)
+  v2 = iconst i64 8
+  v3 = addr ptr v1, v2, 1, 0
+  v4 = iconst i64 42
+  store v4, v3
+  v5 = call.rt ptr mem_alloc(v0)
+  v6 = iconst i64 7
+  store v6, v5
+  v7 = load i64 v3
+  call.rt void print_i64(v7)
+  call.rt void print_nl()
+  v8 = iconst i64 0
+  ret v8
+}

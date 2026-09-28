@@ -78,11 +78,12 @@ typedef struct {
     uint8_t *done;         /* instructions emitted with the one before */
     uint32_t *ccmp;        /* of a check: the icmp fused into it (CHKCC) */
     uint32_t *rsub;        /* of a range check: sub i, lo right after it */
-    uint8_t *kop;    /* the operand taken as an immediate constant, or KNONE */
-    uint32_t *smod;  /* of a select: the srem of the mod it ends (SMOD) */
-    uint32_t *fwd;   /* of a load: the value stored there right before */
-    uint32_t *fpm;   /* of an f64 fadd, fsub, fmul: the fmul fused in */
-    uint32_t *npred; /* of each block: the jumps to it */
+    uint8_t *kop;   /* the operand taken as an immediate constant, or KNONE */
+    uint32_t *smod; /* of a select: the srem of the mod it ends (SMOD) */
+    uint32_t *fwd;  /* of a load: the value stored there right before */
+    uint32_t *fpm;  /* of an f64 fadd, fsub, fmul: the fmul fused in */
+    uint32_t *base_of; /* of an addr folded into its loads and stores */
+    uint32_t *npred;   /* of each block: the jumps to it */
     fixup *fix;
     uint32_t nfix, capfix;
 } L;
@@ -1552,6 +1553,48 @@ static bool absorb(L *l, uint32_t v, uint32_t anchor)
     return true;
 }
 
+/* the addrs of find_fusions folded into their loads and stores; false
+   when memory is exhausted */
+static bool fold_addrs(L *l, const uint32_t *uses)
+{
+    const limba_func *f = l->f;
+    uint8_t *other = calloc((size_t)f->ninsts + 1, 1);
+    uint32_t i, s, j;
+
+    if (!other)
+        return false;
+    /* the values used other than as the address of a load or store */
+    for (i = 0; i < f->ninsts; i++) {
+        const limba_inst *in = &f->insts[i];
+        const uint32_t *o = f->operands + in->first;
+        meri_span sp[3];
+        uint32_t ns = meri_value_spans(f, in, sp);
+        for (s = 0; s < ns; s++)
+            for (j = 0; j < sp[s].n; j++) {
+                const uint32_t *u = &sp[s].o[j];
+                bool addr = (is_load(in) && u == o) ||
+                            (in->op == LIMBA_OP_STORE && u == o + 1);
+                if (!addr || in->type == LIMBA_T_STR ||
+                    (in->op == LIMBA_OP_STORE &&
+                     f->insts[o[0]].type == LIMBA_T_STR))
+                    other[*u] = 1;
+            }
+    }
+    for (i = 0; i < f->ninsts; i++) {
+        const limba_inst *in = &f->insts[i];
+        uint64_t off;
+        if (in->op != LIMBA_OP_ADDR || l->fu.absorbed[i] || !uses[i] ||
+            other[i] || !addr_const(l, i, &off) || off < 1 || off > 255 ||
+            meri_str_of_ptr(f, i) != LIMBA_NONE)
+            continue;
+        l->base_of[i] = f->operands[in->first];
+        absorb(l, i, LIMBA_NONE);
+    }
+    free(other);
+    l->fu.base_of = l->base_of;
+    return true;
+}
+
 /* find the fusions of f before its registers are given: range checks
    (CHKR, CHKRK), addr into the load or store right after it (LDX, STX),
    sub i, c into the addr right after it; constants no longer needed */
@@ -1580,13 +1623,14 @@ static bool find_fusions(L *l)
     l->smod = malloc(n * sizeof(uint32_t));
     l->fwd = malloc(n * sizeof(uint32_t));
     l->fpm = malloc(n * sizeof(uint32_t));
+    l->base_of = malloc(n * sizeof(uint32_t));
     l->fu.hoist = calloc(n, 1);
     need = calloc(n, sizeof(uint32_t));
     seq = malloc(n * sizeof(uint32_t));
     if (!uses || !need || !seq || !l->fu.absorbed || !l->fu.anchor || !l->rlo ||
         !l->rhi || !l->ridx || !l->ldx || !l->fold || !l->nz || !l->tz ||
         !l->ccmp || !l->rsub || !l->done || !l->kop || !l->smod || !l->fwd ||
-        !l->fpm || !l->fu.hoist) {
+        !l->fpm || !l->base_of || !l->fu.hoist) {
         free(uses);
         free(need);
         free(seq);
@@ -1610,7 +1654,7 @@ static bool find_fusions(L *l)
         l->ldx[i] = l->fold[i] = l->nz[i] = l->tz[i] = LIMBA_NONE;
         l->ccmp[i] = l->rsub[i] = LIMBA_NONE;
         l->kop[i] = KNONE;
-        l->smod[i] = l->fwd[i] = l->fpm[i] = LIMBA_NONE;
+        l->smod[i] = l->fwd[i] = l->fpm[i] = l->base_of[i] = LIMBA_NONE;
         for (s = 0; s < ns; s++)
             for (j = 0; j < sp[s].n; j++)
                 uses[sp[s].o[j]]++;
@@ -1786,11 +1830,22 @@ static bool find_fusions(L *l)
             for (i = bl->nparams; i < bl->ninsts; i++)
                 l->kop[bl->insts[i]] = imm_operand(l, uses, bl, i);
     }
+    /* an addr base + a displacement of 1 to 255 whose every use is the
+       address of a load or a store: folded into each of them (the
+       displacement of ld, st), with no register; its base kept alive where
+       it is used (fu.base_of). Not a pointer into a str (lower_live.c
+       keeps those alive another way) */
+    if (!fold_addrs(l, uses)) {
+        free(uses), free(need), free(seq), free(inloop);
+        return false;
+    }
     /* a constant is still needed if something not absorbed uses it, or a
        range check that keeps its limits in registers */
     for (i = 0; i < f->ninsts; i++) {
         meri_span sp[3];
         uint32_t ns;
+        if (l->base_of[i] != LIMBA_NONE)
+            need[l->base_of[i]]++;
         if (l->fu.absorbed[i])
             continue;
         if (l->tz[i] != LIMBA_NONE) { /* not the 0 */
@@ -2237,6 +2292,14 @@ static void inst_body(L *l, uint32_t id, uint32_t next)
         }
         if (indexed(l, id, in, a))
             return;
+        if (l->base_of && l->base_of[o[0]] != LIMBA_NONE) {
+            /* base + the displacement of the folded addr */
+            uint64_t off;
+            addr_const(l, o[0], &off);
+            emit(l, meri_abc(load_op(in->type), a, use(l, l->base_of[o[0]], 0),
+                             (unsigned)off));
+            return;
+        }
         emit(l,
              meri_abc(in->type == LIMBA_T_STR ? MERI_OP_LDS : load_op(in->type),
                       a, use(l, o[0], 0), 0));
@@ -2245,6 +2308,15 @@ static void inst_body(L *l, uint32_t id, uint32_t next)
         limba_id vt = f->insts[o[0]].type;
         if (indexed(l, id, in, 0))
             return;
+        if (l->base_of && l->base_of[o[1]] != LIMBA_NONE) {
+            /* base + the displacement of the folded addr */
+            uint64_t off;
+            unsigned rv = use(l, o[0], 0);
+            addr_const(l, o[1], &off);
+            emit(l, meri_abc(store_op(vt), rv, use(l, l->base_of[o[1]], 1),
+                             (unsigned)off));
+            return;
+        }
         emit(l, meri_abc(vt == LIMBA_T_STR ? MERI_OP_STS : store_op(vt),
                          use(l, o[0], 0), use(l, o[1], 1), 0));
         return;
@@ -2706,6 +2778,7 @@ static void function(meri_program *p, uint32_t fid, meri_diag *d)
     free(l.smod);
     free(l.fwd);
     free(l.fpm);
+    free(l.base_of);
     free(l.rsub);
     free(l.done);
     free(l.at_of);

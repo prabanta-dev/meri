@@ -106,5 +106,8 @@
 - An f64 fmul used once by an fadd, fsub or fmul is one instruction with
   it (`FMADD`, `FMSUB`, `FMUL3` and their reversed forms): two roundings,
   as the IR says, never an FMA; the operands in the order of the IR.
+- An addr of a constant displacement (1 to 255) used only as the address
+  of loads and stores is folded into each of them, with no register; its
+  base is kept alive wherever the addr is used.
 - The repository: build script (it builds Limba first, in the same
   variant, and links every program with its library), licence, style.

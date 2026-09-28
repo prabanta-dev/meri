@@ -59,6 +59,10 @@ typedef struct {
        the copy passes its definition, and the copy is never alive where
        b begins */
     uint32_t *alias;
+    /* of an addr folded into every load and store that uses it (base +
+       displacement), absorbed: its base, alive wherever the addr is used;
+       LIMBA_NONE for any other; NULL for none at all */
+    const uint32_t *base_of;
     /* the blocks in the order they are emitted, block 0 first; NULL for
        the order of the IR. The intervals follow it */
     const uint32_t *order;

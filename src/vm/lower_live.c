@@ -135,12 +135,15 @@ uint32_t meri_str_of_ptr(const limba_func *f, uint32_t v)
     return LIMBA_NONE;
 }
 
-/* the str each value points into, LIMBA_NONE for none; NULL if f has no
-   str_ptr (or memory is exhausted: then false) */
-static bool keeps_make(const limba_func *f, uint32_t **keep)
+/* the value each value keeps alive where it is used: the str it points
+   into, or the base of an addr folded into its loads and stores
+   (base_of, may be NULL); LIMBA_NONE for none. NULL if no value keeps
+   another (or memory is exhausted: then false) */
+static bool keeps_make(const limba_func *f, const uint32_t *base_of,
+                       uint32_t **keep)
 {
     uint32_t i;
-    bool any = false;
+    bool any = base_of != NULL;
 
     *keep = NULL;
     for (i = 0; i < f->ninsts && !any; i++)
@@ -151,8 +154,11 @@ static bool keeps_make(const limba_func *f, uint32_t **keep)
     *keep = malloc(((size_t)f->ninsts + 1) * sizeof(uint32_t));
     if (!*keep)
         return false;
-    for (i = 0; i < f->ninsts; i++)
+    for (i = 0; i < f->ninsts; i++) {
         (*keep)[i] = meri_str_of_ptr(f, i);
+        if ((*keep)[i] == LIMBA_NONE && base_of)
+            (*keep)[i] = base_of[i];
+    }
     return true;
 }
 
@@ -189,7 +195,7 @@ static bool set_has(const uint64_t *s, uint32_t v)
    (lower.c), or NULL; order: the blocks in the order of the numbers, or
    NULL for the order of the IR */
 static bool live_init(live *l, const limba_func *f, const uint8_t *hoist,
-                      const uint32_t *order)
+                      const uint32_t *base_of, const uint32_t *order)
 {
     uint32_t b, k, p = 0, ob;
     size_t n;
@@ -205,7 +211,7 @@ static bool live_init(live *l, const limba_func *f, const uint8_t *hoist,
     l->bstart = calloc((size_t)f->nblocks + 1, sizeof(uint32_t));
     l->bend = calloc((size_t)f->nblocks + 1, sizeof(uint32_t));
     if (!l->in || !l->out || !l->use || !l->def || !l->pos || !l->bstart ||
-        !l->bend || !keeps_make(f, &l->keep))
+        !l->bend || !keeps_make(f, base_of, &l->keep))
         return false;
     if (hoist && f->nblocks)
         for (k = 0; k < f->ninsts; k++)
@@ -456,7 +462,8 @@ bool meri_alloc_regs(const limba_func *f, uint32_t max, uint32_t skip,
     freeset = calloc(nwords + 1, sizeof(uint64_t));
     if (!a->reg || !a->fused || !iv || !active || !at || !freeset ||
         max > MERI_NOREG ||
-        !live_init(&l, f, fu ? fu->hoist : NULL, fu ? fu->order : NULL) ||
+        !live_init(&l, f, fu ? fu->hoist : NULL, fu ? fu->base_of : NULL,
+                   fu ? fu->order : NULL) ||
         !hints_make(f, &h))
         goto done;
     live_solve(&l);
@@ -657,7 +664,7 @@ bool meri_str_plan(const limba_func *f, meri_strplan *p)
     p->edge_at = calloc((size_t)f->nblocks + 1, sizeof(uint32_t));
     p->edge = calloc((size_t)nedges + 1, sizeof(meri_list));
     if (!p->after || !p->start || !p->at_ret || !p->edge_at || !p->edge ||
-        !live_init(&l, f, NULL, NULL))
+        !live_init(&l, f, NULL, NULL, NULL))
         goto done;
     live_solve(&l);
     now = calloc(l.words, sizeof(uint64_t));
