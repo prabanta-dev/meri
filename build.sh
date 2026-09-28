@@ -91,7 +91,10 @@ BIN="bin/$CPU-$OS"
 SUFFIX=""
 [ "$VARIANT" != release ] && SUFFIX="-$VARIANT"
 
-CFLAGS=(-std=gnu11 -Wall -Wextra -Werror -pthread -Isrc -Iinclude)
+# -ffp-contract=off: a * b + c is two roundings, as in the IR, never an
+# FMA the compiler picks where the CPU has one (the same bits as lir_run)
+CFLAGS=(-std=gnu11 -Wall -Wextra -Werror -pthread -ffp-contract=off -Isrc
+    -Iinclude)
 case "$VARIANT" in
 release) CFLAGS+=(-O2 -DNDEBUG) ;;
 debug) CFLAGS+=(-O0 -g) ;;
