@@ -1,0 +1,24 @@
+; output: 0 5
+; result: 0
+; a memset of 0 right after mem_alloc is dropped (the block is zeroed
+; already, lower.c); one of another value is not
+func @main : fn() -> i64 {
+b0:
+  v0 = iconst i64 16
+  v1 = call.rt ptr mem_alloc(v0)
+  v2 = iconst i8 0
+  memset v1, v2, v0
+  v3 = load i64 v1
+  call.rt void print_i64(v3)
+  v4 = iconst i32 32
+  call.rt void print_char(v4)
+  v5 = call.rt ptr mem_alloc(v0)
+  v6 = iconst i8 5
+  memset v5, v6, v0
+  v7 = load i8 v5
+  v8 = sext i64 v7
+  call.rt void print_i64(v8)
+  call.rt void print_nl()
+  v9 = iconst i64 0
+  ret v9
+}

@@ -213,3 +213,16 @@ MERI_OP(ADDI, "addi", MERI_FMT_ABC)
    2^32 sign-extended) and the JMP after it is taken; else it is skipped */
 MERI_OP(LOOP, "loop", MERI_FMT_ABCJ)
 MERI_OP(LOOP32, "loop32", MERI_FMT_ABCJ)
+/* mem_alloc: R[A] = a zeroed block of R[B] bytes, NOMEM past the budget */
+MERI_OP(ALLOC, "alloc", MERI_FMT_AB)
+/* a nil check and a live check of R[A]: the traps K[Bx], K[Bx + 1] */
+MERI_OP(CHKNL, "chknl", MERI_FMT_ABx)
+/* CHKR, then R[X >> 16] = R[A] - R[B]; the trap K[X & 0xffff] */
+MERI_OP(CHKRS, "chkrs", MERI_FMT_ABC_X)
+/* the trap K[X] unless R[A] cc R[B], an integer comparison (cc = C) */
+MERI_OP(CHKCC, "chkcc", MERI_FMT_ABC_X)
+/* memcpy (as memmove) and memset of C bytes, C a constant */
+MERI_OP(MEMCPYK, "memcpyk", MERI_FMT_ABC)
+MERI_OP(MEMSETK, "memsetk", MERI_FMT_ABC)
+/* ptr_live: R[A] = 1 if R[B] is the pointer of a block alive, else 0 */
+MERI_OP(LIVE, "live", MERI_FMT_AB)

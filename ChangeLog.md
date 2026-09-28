@@ -76,5 +76,13 @@
   a loop). Such a pointer may go only to an `addr`, a load or store
   address, `memcpy`, `memset` or a call; elsewhere the function is
   refused. `load.inv` (IR of Limba d5d3ab8) runs as a load.
+- More instructions from the profile: `mem_alloc` (`ALLOC`, and a memset
+  of 0 right after it is dropped: blocks are zeroed), `ptr_live`
+  (`LIVE`), the nil and dangling checks of an access at one position
+  (`CHKNL`), a range check with the subtraction of its lower limit
+  (`CHKRS`), a check of an integer comparison (`CHKCC`), memcpy and
+  memset of a constant length (`MEMCPYK`, `MEMSETK`). A dangling check
+  finds a small block without a division. Instructions run:
+  k-nucleotide -12 %, binary-trees -14 %.
 - The repository: build script (it builds Limba first, in the same
   variant, and links every program with its library), licence, style.

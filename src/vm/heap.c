@@ -207,6 +207,18 @@ static bool new_arena(meri_heap *h, unsigned c)
     return true;
 }
 
+/* the step of the blocks of class c in an arena, and its reciprocal:
+   for off < ARENA, (off * STEP_M(c)) >> 40 is off / STEP(c) exactly (the
+   error of the rounding, below 2^-20, never reaches the next multiple of
+   1 / STEP(c)): a check of every access without a division */
+#define STEP(c) (HEAD + 16 * ((uint64_t)(c) + 1))
+#define STEP_M(c) ((((uint64_t)1 << 40) + STEP(c) - 1) / STEP(c))
+_Static_assert(MERI_SLAB_CLASSES == 16, "step_m has one entry a class");
+static const uint64_t step_m[MERI_SLAB_CLASSES] = {
+    STEP_M(0),  STEP_M(1),  STEP_M(2),  STEP_M(3), STEP_M(4),  STEP_M(5),
+    STEP_M(6),  STEP_M(7),  STEP_M(8),  STEP_M(9), STEP_M(10), STEP_M(11),
+    STEP_M(12), STEP_M(13), STEP_M(14), STEP_M(15)};
+
 /* the header of the small block whose bytes begin at a, or NULL */
 static slot_head *small_head(const meri_heap *h, uintptr_t a)
 {
@@ -217,11 +229,12 @@ static slot_head *small_head(const meri_heap *h, uintptr_t a)
     if (!SLABS || !is_arena(h, base))
         return NULL;
     c = *(const uint32_t *)base;
-    step = HEAD + 16 * ((uint64_t)c + 1);
+    step = STEP(c);
     if (a < base + ARENA_HEAD + HEAD)
         return NULL;
     off = a - (base + ARENA_HEAD + HEAD);
-    if (off % step || a + 16 * ((uint64_t)c + 1) > base + ARENA)
+    if (((off * step_m[c]) >> 40) * step != off ||
+        a + 16 * ((uint64_t)c + 1) > base + ARENA)
         return NULL;
     return (slot_head *)(a - HEAD);
 }

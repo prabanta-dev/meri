@@ -1,0 +1,19 @@
+; trap: 105
+; at: 5:3
+; the nil and dangling checks of an access at one position, one
+; instruction (CHKNL): a freed pointer passes the first and stops at the
+; second, with its own code
+pos 1 "t.luxia" 5 3
+func @main : fn() -> i64 {
+b0:
+  v0 = iconst i64 16
+  v1 = call.rt ptr mem_alloc(v0)
+  call.rt void mem_free(v1)
+  v2 = null ptr
+  v3 = icmp.ne i1 v1, v2 !1
+  check v3, 102 !1
+  v4 = call.rt i1 ptr_live(v1) !1
+  check v4, 105 !1
+  v5 = load i64 v1 !1
+  ret v5
+}

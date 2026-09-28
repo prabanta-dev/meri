@@ -1,0 +1,15 @@
+; trap: 102
+; at: 5:3
+; the nil check and the dangling check of an access, one instruction in
+; Meri (CHKNL): a nil pointer stops at the first, with its own code
+pos 1 "t.luxia" 5 3
+func @main : fn() -> i64 {
+b0:
+  v0 = null ptr
+  v1 = icmp.ne i1 v0, v0 !1
+  check v1, 102 !1
+  v2 = call.rt i1 ptr_live(v0) !1
+  check v2, 105 !1
+  v3 = load i64 v0 !1
+  ret v3
+}

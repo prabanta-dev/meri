@@ -149,6 +149,34 @@ static inline uint64_t s32(uint64_t v)
     return (uint64_t)(int64_t)(int32_t)(uint32_t)v;
 }
 
+/* an integer comparison of canonical values (CHKCC): the unsigned order
+   of values sign-extended from one width is the order of that width */
+static inline bool int_cc(unsigned cc, uint64_t a, uint64_t b)
+{
+    switch (cc) {
+    case LIMBA_CC_EQ:
+        return a == b;
+    case LIMBA_CC_NE:
+        return a != b;
+    case LIMBA_CC_SLT:
+        return (int64_t)a < (int64_t)b;
+    case LIMBA_CC_SLE:
+        return (int64_t)a <= (int64_t)b;
+    case LIMBA_CC_SGT:
+        return (int64_t)a > (int64_t)b;
+    case LIMBA_CC_SGE:
+        return (int64_t)a >= (int64_t)b;
+    case LIMBA_CC_ULT:
+        return a < b;
+    case LIMBA_CC_ULE:
+        return a <= b;
+    case LIMBA_CC_UGT:
+        return a > b;
+    default: /* LIMBA_CC_UGE: lower.c gives no other */
+        return a >= b;
+    }
+}
+
 static double round_away(double x)
 {
     double t = trunc(x), d = x - t;
@@ -1248,6 +1276,80 @@ op_LOOP32:
         NEXT;
     }
     pc++;
+    NEXT;
+op_ALLOC: {
+    uint64_t n = RB, c = meri_heap_charge(n), q;
+    ip = pc - 1;
+    if ((int64_t)n < 0 || !meri_state_take(s, c))
+        TRAP(LIMBA_TRAP_NOMEM);
+    q = meri_heap_alloc(&s->heap, n);
+    if (!q) {
+        meri_state_give(s, c);
+        TRAP(LIMBA_TRAP_NOMEM);
+    }
+    RA = q;
+    NEXT;
+}
+op_CHKNL:
+    ip = pc - 1;
+    if (!RA)
+        TRAP((int64_t)k[MERI_W_BX(w)]);
+    if (!meri_heap_live(&s->heap, RA))
+        TRAP((int64_t)k[MERI_W_BX(w) + 1]);
+    NEXT;
+op_CHKRS: {
+    int64_t v = (int64_t)RA;
+    ip = pc - 1;
+    x = *pc++;
+    if (!((int64_t)RB <= v && v <= (int64_t)RC))
+        TRAP((int64_t)k[x & 0xffff]);
+    base[x >> 16] = RA - RB;
+    NEXT;
+}
+op_CHKCC:
+    ip = pc - 1;
+    x = *pc++;
+    if (!int_cc(MERI_W_C(w), RA, RB))
+        TRAP((int64_t)k[x]);
+    NEXT;
+op_MEMCPYK: {
+    uint8_t *d = (uint8_t *)(uintptr_t)MERI_ADDR(RA);
+    const uint8_t *q = (const uint8_t *)(uintptr_t)MERI_ADDR(RB);
+    uint64_t a0, a1;
+    switch (MERI_W_C(w)) {
+    case 8:
+        memcpy(&a0, q, 8);
+        memcpy(d, &a0, 8);
+        break;
+    case 16: /* both read before a byte is written: as memmove */
+        memcpy(&a0, q, 8);
+        memcpy(&a1, q + 8, 8);
+        memcpy(d, &a0, 8);
+        memcpy(d + 8, &a1, 8);
+        break;
+    default:
+        memmove(d, q, MERI_W_C(w));
+    }
+    NEXT;
+}
+op_MEMSETK: {
+    uint8_t *d = (uint8_t *)(uintptr_t)MERI_ADDR(RA);
+    uint64_t v = 0x0101010101010101ull * (uint8_t)RB;
+    switch (MERI_W_C(w)) {
+    case 8:
+        memcpy(d, &v, 8);
+        break;
+    case 16:
+        memcpy(d, &v, 8);
+        memcpy(d + 8, &v, 8);
+        break;
+    default:
+        memset(d, (int)(uint8_t)RB, MERI_W_C(w));
+    }
+    NEXT;
+}
+op_LIVE:
+    RA = meri_heap_live(&s->heap, RB);
     NEXT;
 op_PUTC: {
     uint32_t c = (uint32_t)RA;

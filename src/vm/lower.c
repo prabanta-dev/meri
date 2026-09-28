@@ -72,6 +72,10 @@ typedef struct {
     uint32_t *at_of;       /* of each block: its index in order */
     uint32_t at;           /* the index of the block being emitted */
     uint8_t *skip;         /* blocks emitted with the one before them */
+    uint32_t ii;           /* the index in its block of the instruction */
+    uint8_t *done;         /* instructions emitted with the one before */
+    uint32_t *ccmp;        /* of a check: the icmp fused into it (CHKCC) */
+    uint32_t *rsub;        /* of a range check: sub i, lo right after it */
     uint32_t *npred;       /* of each block: the jumps to it */
     fixup *fix;
     uint32_t nfix, capfix;
@@ -1355,6 +1359,19 @@ static bool addr_small(const L *l, uint32_t a)
     return addr_const(l, a, &off) && off <= 255;
 }
 
+/* memcpy or memset of a constant length of 1 to 255 bytes (MEMCPYK,
+   MEMSETK) */
+static bool mem_k(const limba_func *f, uint32_t i)
+{
+    const limba_inst *in = &f->insts[i];
+    uint32_t n;
+
+    if (in->op != LIMBA_OP_MEMCPY && in->op != LIMBA_OP_MEMSET)
+        return false;
+    n = f->operands[in->first + 2];
+    return is_const(f, n) && const_of(f, n) >= 1 && const_of(f, n) <= 255;
+}
+
 static bool absorb(L *l, uint32_t v, uint32_t anchor)
 {
     l->fu.absorbed[v] = 1;
@@ -1383,12 +1400,15 @@ static bool find_fusions(L *l)
     l->fold = malloc(n * sizeof(uint32_t));
     l->nz = malloc(n * sizeof(uint32_t));
     l->tz = malloc(n * sizeof(uint32_t));
+    l->ccmp = malloc(n * sizeof(uint32_t));
+    l->rsub = malloc(n * sizeof(uint32_t));
+    l->done = calloc(n, 1);
     l->fu.hoist = calloc(n, 1);
     need = calloc(n, sizeof(uint32_t));
     seq = malloc(n * sizeof(uint32_t));
     if (!uses || !need || !seq || !l->fu.absorbed || !l->fu.anchor || !l->rlo ||
         !l->rhi || !l->ridx || !l->ldx || !l->fold || !l->nz || !l->tz ||
-        !l->fu.hoist) {
+        !l->ccmp || !l->rsub || !l->done || !l->fu.hoist) {
         free(uses);
         free(need);
         free(seq);
@@ -1410,6 +1430,7 @@ static bool find_fusions(L *l)
         uint32_t ns = meri_value_spans(f, &f->insts[i], sp);
         l->fu.anchor[i] = l->rlo[i] = l->rhi[i] = l->ridx[i] = LIMBA_NONE;
         l->ldx[i] = l->fold[i] = l->nz[i] = l->tz[i] = LIMBA_NONE;
+        l->ccmp[i] = l->rsub[i] = LIMBA_NONE;
         for (s = 0; s < ns; s++)
             for (j = 0; j < sp[s].n; j++)
                 uses[sp[s].o[j]]++;
@@ -1431,6 +1452,15 @@ static bool find_fusions(L *l)
                 absorb(l, w[0], w[3]);
                 absorb(l, w[1], w[3]);
                 absorb(l, w[2], w[3]);
+                /* sub i, lo right after it: CHKRS, if lo is no constant
+                   (then the sub folds into the addr) */
+                if (i + 4 < ns && !is_const(f, lo)) {
+                    const limba_inst *si = &f->insts[w[4]];
+                    const uint32_t *os = f->operands + si->first;
+                    if (si->op == LIMBA_OP_SUB && bits_of(si->type) == 64 &&
+                        os[0] == x && os[1] == lo)
+                        l->rsub[w[3]] = w[4];
+                }
             }
         }
         /* check (ne x, 0): check x */
@@ -1441,6 +1471,34 @@ static bool find_fusions(L *l)
                 l->nz[seq[i + 1]] = x;
                 absorb(l, seq[i], seq[i + 1]);
             }
+        }
+        /* check (icmp cc a, b), the icmp used only there: CHKCC */
+        for (i = 0; i + 1 < ns; i++) {
+            uint32_t c = seq[i], k = seq[i + 1];
+            const limba_inst *ci = &f->insts[c], *ki = &f->insts[k];
+            if (!l->fu.absorbed[c] && !l->fu.absorbed[k] &&
+                ci->op == LIMBA_OP_ICMP && uses[c] == 1 &&
+                ki->op == LIMBA_OP_CHECK && f->operands[ki->first] == c) {
+                l->ccmp[k] = c;
+                absorb(l, c, k);
+            }
+        }
+        /* memset p, 0, n right after p = mem_alloc(n): the block is zeroed
+           already (heap.h) */
+        for (i = 0; i + 1 < ns; i++) {
+            const limba_inst *ai = &f->insts[seq[i]],
+                             *mi = &f->insts[seq[i + 1]];
+            const uint32_t *om = f->operands + mi->first;
+            uint32_t an;
+            if (ai->op != LIMBA_OP_CALLRT || ai->imm != LIMBA_RT_MEM_ALLOC ||
+                ai->nops != 1 || mi->op != LIMBA_OP_MEMSET || om[0] != seq[i] ||
+                !is_zero(f, om[1]))
+                continue;
+            an = f->operands[ai->first];
+            if (om[2] == an ||
+                (is_const(f, om[2]) && is_const(f, an) &&
+                 (uint64_t)const_of(f, om[2]) <= (uint64_t)const_of(f, an)))
+                absorb(l, seq[i + 1], LIMBA_NONE);
         }
         /* cbr (eq or ne x, 0), the comparison right before it and used
            only there (fused into it: lower_live.c): test x */
@@ -1516,6 +1574,11 @@ static bool find_fusions(L *l)
             need[f->operands[f->insts[i].first]]++; /* the base alone */
             continue;
         }
+        if (mem_k(f, i)) { /* not the length */
+            need[f->operands[f->insts[i].first]]++;
+            need[f->operands[f->insts[i].first + 1]]++;
+            continue;
+        }
         ns = meri_value_spans(f, &f->insts[i], sp);
         for (s = 0; s < ns; s++)
             for (j = 0; j < sp[s].n; j++)
@@ -1530,6 +1593,11 @@ static bool find_fusions(L *l)
             need[l->ridx[i]]++;
         if (l->nz[i] != LIMBA_NONE)
             need[l->nz[i]]++;
+        if (l->ccmp[i] != LIMBA_NONE) {
+            const uint32_t *oc = f->operands + f->insts[l->ccmp[i]].first;
+            need[oc[0]]++;
+            need[oc[1]]++;
+        }
         if (l->ldx[i] != LIMBA_NONE) {
             const limba_inst *ai = &f->insts[l->ldx[i]];
             const uint32_t *oa = f->operands + ai->first;
@@ -1683,6 +1751,28 @@ static bool indexed(L *l, uint32_t id, const limba_inst *in, unsigned a)
     return true;
 }
 
+/* the next instruction of the block being emitted that is emitted
+   itself, LIMBA_NONE for none */
+static uint32_t next_inst(const L *l)
+{
+    const limba_block *bl = &l->f->blocks[l->block];
+    uint32_t j;
+
+    for (j = l->ii + 1; j < bl->ninsts; j++) {
+        uint32_t v = bl->insts[j];
+        const limba_inst *in = &l->f->insts[v];
+        if ((l->fu.hoist && l->fu.hoist[v]) || l->fu.absorbed[v])
+            continue;
+        /* an addr of displacement 0 in the register of its base: nothing */
+        if (in->op == LIMBA_OP_ADDR && l->fu.alias &&
+            l->fu.alias[v] != LIMBA_NONE &&
+            l->al.reg[v] == l->al.reg[l->fu.alias[v]] && !l->sp.after[v].n)
+            continue;
+        return v;
+    }
+    return LIMBA_NONE;
+}
+
 /* a range check fused into the check; false if none */
 static bool range(L *l, uint32_t id, const limba_inst *in)
 {
@@ -1700,6 +1790,15 @@ static bool range(L *l, uint32_t id, const limba_inst *in)
              konst2(l, (uint64_t)const_of(f, lo), (uint64_t)const_of(f, hi)));
     } else {
         unsigned rl = use(l, lo, 1), rh = use(l, hi, 2);
+        uint32_t sb = l->rsub[id];
+        /* with the sub i, lo right after it (CHKRS): nothing is emitted
+           between them (a check reads an i1, so no string dies at it) */
+        if (sb != LIMBA_NONE && !l->wide && next_inst(l) == sb) {
+            emit(l, meri_abc(MERI_OP_CHKRS, ri, rl, rh));
+            emit(l, konst(l, (uint64_t)in->imm) | (uint32_t)reg(l, sb) << 16);
+            l->done[sb] = 1;
+            return true;
+        }
         emit(l, meri_abc(MERI_OP_CHKR, ri, rl, rh));
         emit(l, konst(l, (uint64_t)in->imm));
     }
@@ -1729,8 +1828,41 @@ static bool rt_inline(L *l, uint32_t id, const limba_inst *in)
     case LIMBA_RT_PRINT_CHAR:
         emit(l, meri_abc(MERI_OP_PUTC, use(l, o[0], 0), 0, 0));
         return true;
+    case LIMBA_RT_MEM_ALLOC:
+    case LIMBA_RT_PTR_LIVE:
+        if (in->imm == LIMBA_RT_PTR_LIVE && l->chk && l->chk[id] != LIMBA_NONE)
+            return false; /* CHKLIVE, with its check */
+        x = use(l, o[0], 0);
+        d = def(l, id);
+        emit(l, meri_abc(in->imm == LIMBA_RT_MEM_ALLOC ? MERI_OP_ALLOC
+                                                       : MERI_OP_LIVE,
+                         d, x, 0));
+        return true;
     }
     return false;
+}
+
+/* check (ne x, 0) followed by ptr_live(x) and its check at the same
+   position: CHKNL; false otherwise. No string dies at the first check
+   (it reads an i1), nor at what next_inst skips */
+static bool chknl(L *l, uint32_t id, const limba_inst *in)
+{
+    const limba_func *f = l->f;
+    uint32_t pl = next_inst(l), x = l->nz[id];
+    const limba_inst *pi;
+
+    if (pl == LIMBA_NONE || !l->chk)
+        return false;
+    pi = &f->insts[pl];
+    if (pi->op != LIMBA_OP_CALLRT || pi->imm != LIMBA_RT_PTR_LIVE ||
+        l->chk[pl] == LIMBA_NONE || f->operands[pi->first] != x ||
+        limba_inst_pos(f, l->chk[pl]) != limba_inst_pos(f, id))
+        return false;
+    emit(l, meri_abx(MERI_OP_CHKNL, use(l, x, 0),
+                     konst2(l, (uint64_t)in->imm,
+                            (uint64_t)f->insts[l->chk[pl]].imm)));
+    l->done[pl] = 1;
+    return true;
 }
 
 static void inst_body(L *l, uint32_t id, uint32_t next)
@@ -1749,6 +1881,8 @@ static void inst_body(L *l, uint32_t id, uint32_t next)
         return; /* emitted with a later instruction */
     if (l->fu.hoist && l->fu.hoist[id])
         return; /* loaded before block 0 */
+    if (l->done && l->done[id])
+        return; /* emitted with the instruction before it */
     switch (limba_ops[in->op].format) {
     case LIMBA_F_ICONST:
         load_const(l, a, meri_norm((uint64_t)in->imm, in->type));
@@ -1850,7 +1984,15 @@ static void inst_body(L *l, uint32_t id, uint32_t next)
     }
     case LIMBA_F_MEM3: {
         limba_id lt = f->insts[o[2]].type;
-        unsigned len = use(l, o[2], 2);
+        unsigned len;
+        if (mem_k(f, id)) {
+            unsigned d0 = use(l, o[0], 0), s0 = use(l, o[1], 1);
+            emit(l, meri_abc(in->op == LIMBA_OP_MEMCPY ? MERI_OP_MEMCPYK
+                                                       : MERI_OP_MEMSETK,
+                             d0, s0, (unsigned)const_of(f, o[2])));
+            return;
+        }
+        len = use(l, o[2], 2);
         if (bits_of(lt) != 64) {
             if (bits_of(lt) == 1)
                 move(l, l->scratch, len);
@@ -1917,6 +2059,16 @@ static void inst_body(L *l, uint32_t id, uint32_t next)
         if (l->gone && l->gone[id])
             return; /* done by CHKLIVE */
         if (range(l, id, in))
+            return;
+        if (l->ccmp && l->ccmp[id] != LIMBA_NONE) {
+            const limba_inst *ci = &f->insts[l->ccmp[id]];
+            const uint32_t *oc = f->operands + ci->first;
+            unsigned ra = use(l, oc[0], 0), rb = use(l, oc[1], 1);
+            emit(l, meri_abc(MERI_OP_CHKCC, ra, rb, ci->cc));
+            emit(l, konst(l, (uint64_t)in->imm));
+            return;
+        }
+        if (l->nz && l->nz[id] != LIMBA_NONE && chknl(l, id, in))
             return;
         emit(l,
              meri_abx(
@@ -2203,6 +2355,7 @@ static void function(meri_program *p, uint32_t fid, meri_diag *d)
             release_list(&l, &l.sp.start[b]);
             for (i = bl->nparams; i < bl->ninsts; i++) {
                 uint32_t id = bl->insts[i];
+                l.ii = i;
                 inst(&l, id, next);
                 if (i + 1 < bl->ninsts)
                     release_list(&l, &l.sp.after[id]);
@@ -2245,6 +2398,9 @@ static void function(meri_program *p, uint32_t fid, meri_diag *d)
     free(l.fold);
     free(l.nz);
     free(l.tz);
+    free(l.ccmp);
+    free(l.rsub);
+    free(l.done);
     free(l.at_of);
     free(l.skip);
     free(l.npred);
