@@ -131,5 +131,13 @@
   (unsigned __int128, where the compiler has it), not four of their
   halves: the one change to its source, in PROVENANCE. pidigits with
   BigInt runs in about half the time.
+- A calling convention of its own, for calls to C functions whose
+  signature is known at run time, with no library for it: the System V
+  AMD64 classification in C (src/vm/abi.c) and a trampoline of a few
+  dozen lines of assembly that knows nothing of the rules. test_abi
+  checks it against probes the C compiler lays out itself: integers of
+  every width, reals, registers exhausted, structs of every class, a
+  result in memory, the alignment of the stack. Not yet reachable from
+  a program: the language has no external declarations yet.
 - The repository: build script (it builds Limba first, in the same
   variant, and links every program with its library), licence, style.
