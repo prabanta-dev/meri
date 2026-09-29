@@ -261,18 +261,26 @@ if [ "$ACTION" = test ]; then
     # by Limba (lir_run does not call C)
     ffi="$LIMBA_DIR/tests/luxia/ffi"
     if [ -f "$ffi/probe.c" ] && [ -x "$BIN/meri$SUFFIX" ]; then
-        echo "RUN probes.luxia against libprobe"
-        "$CC" -O2 -shared -fPIC -o "$OBJ/libprobe.so" "$ffi/probe.c" ||
-            status=1
-        for o in 0 1; do
-            if ! "$LIMBA_DIR/bin/$CPU-$OS/limba$SUFFIX" -O$o \
-                -o "$OBJ/probes-O$o.lir" "$ffi/probes.luxia" ||
-                ! "$BIN/meri$SUFFIX" --lib-path="$OBJ" "$OBJ/probes-O$o.lir" \
-                    >"$OBJ/probes-O$o.out" ||
-                ! cmp -s "$ffi/expected/probes.out" "$OBJ/probes-O$o.out"; then
-                echo "probes.luxia -O$o: not the expected output"
-                status=1
-            fi
+        # the library built by gcc and by clang at -O2: the callees of
+        # clang rely on the caller's extension of the narrow integers
+        for cc in gcc clang; do
+            command -v "$cc" >/dev/null || continue
+            echo "RUN probes.luxia against libprobe built by $cc"
+            mkdir -p "$OBJ/probe-$cc"
+            "$cc" -O2 -shared -fPIC -o "$OBJ/probe-$cc/libprobe.so" \
+                "$ffi/probe.c" || status=1
+            for o in 0 1; do
+                if ! "$LIMBA_DIR/bin/$CPU-$OS/limba$SUFFIX" -O$o \
+                    -o "$OBJ/probes-O$o.lir" "$ffi/probes.luxia" ||
+                    ! "$BIN/meri$SUFFIX" --lib-path="$OBJ/probe-$cc" \
+                        "$OBJ/probes-O$o.lir" >"$OBJ/probes-O$o.out" ||
+                    ! cmp -s "$ffi/expected/probes.out" \
+                        "$OBJ/probes-O$o.out"; then
+                    echo "probes.luxia -O$o, libprobe by $cc:" \
+                        "not the expected output"
+                    status=1
+                fi
+            done
         done
     fi
     exit $status

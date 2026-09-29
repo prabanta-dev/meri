@@ -148,5 +148,9 @@
   sees); the C strings of runtime.def (cstr_*). meri --lib-path=DIR says
   where the libraries are; build.sh test runs Limba's probes against its
   library of known signatures, in every variant.
+- IR version 6 (Limba fdd4f2d): an integer of 8, 16 or 32 bits of a C
+  signature passes extended as its marker says (zext with zeros, sext
+  with its sign). build.sh test runs the probes against libprobe built
+  by gcc and by clang, whose callees rely on that extension.
 - The repository: build script (it builds Limba first, in the same
   variant, and links every program with its library), licence, style.

@@ -3,10 +3,11 @@
 /*
  * ffi.c - externs and call.ext (ffi.h). The signature of each extern is
  * turned once into the types of abi.h: the integers of the IR are
- * canonical, sign-extended from their width, and pass so (the IR does not
- * say whether a C integer of 8 or 16 bits is signed); i1 is the _Bool of
- * C; a struct keeps the layout of its type in the module, an array field
- * as that many fields.
+ * canonical, sign-extended from their width; one of 8, 16 or 32 bits
+ * passes extended as the marker of the signature says (zext: with zeros,
+ * sext or none: with its sign), and a result comes back canonical from
+ * its low bits whatever its marker; i1 is the _Bool of C; a struct keeps the
+ * layout of its type in the module, an array field as that many fields.
  */
 #include "vm/ffi.h"
 
@@ -113,6 +114,24 @@ static bool is_struct(const limba_module *m, limba_id t)
 {
     return m->types[t].kind == LIMBA_TK_STRUCT ||
            m->types[t].kind == LIMBA_TK_ARRAY;
+}
+
+/* the type of a parameter or result of a C signature: an integer of 8,
+   16 or 32 bits extended as its marker says (zext: unsigned), a struct
+   laid out as in the module */
+static meri_abi_type *param_type(const limba_module *m, limba_id t,
+                                 unsigned ext)
+{
+    if (ext == LIMBA_EXT_ZEXT)
+        switch (t) {
+        case LIMBA_T_I8:
+            return (meri_abi_type *)&meri_abi_u8;
+        case LIMBA_T_I16:
+            return (meri_abi_type *)&meri_abi_u16;
+        case LIMBA_T_I32:
+            return (meri_abi_type *)&meri_abi_u32;
+        }
+    return abi_type(m, t);
 }
 
 /* ---- the libraries */
@@ -231,14 +250,17 @@ bool meri_ffi_link(meri_program *p, const char *const *dirs, size_t ndirs,
             if (!(ex->sret = abi_type(m, rt)))
                 return fail(d, "extern %.*s: a result C cannot take", (int)nsym,
                             sym);
-        } else if (rt != LIMBA_T_VOID && !(ex->ret = abi_type(m, rt))) {
+        } else if (rt != LIMBA_T_VOID &&
+                   !(ex->ret = param_type(m, rt, ft->rext))) {
             return fail(d, "extern %.*s: a result C cannot take", (int)nsym,
                         sym);
         }
         for (; k < np; k++) {
+            /* a parameter's offset is its limba_ext */
             limba_id at = m->members[ft->first + k].type;
             ex->irtype[k] = at;
-            if (!(ex->args[k] = abi_type(m, at)))
+            if (!(ex->args[k] =
+                      param_type(m, at, m->members[ft->first + k].offset)))
                 return fail(d, "extern %.*s: an argument C cannot take",
                             (int)nsym, sym);
         }
