@@ -16,6 +16,7 @@
 #include "vm/code.h"
 #include "vm/lower.h"
 #include "vm/big.h"
+#include "vm/ffi.h"
 #include "vm/rt.h"
 #include "vm/vm.h"
 
@@ -1105,10 +1106,14 @@ op_CALLRT:
         goto stop;
     }
     NEXT;
-op_CALLX:
+op_CALLX: /* the arguments from A, as a call's: ffi.h */
     ip = pc - 1;
-    r->status = MERI_UNSUPPORTED;
-    goto stop;
+    if (!meri_ffi_call(p, MERI_W_BX(w), base + MERI_W_A(w), s)) {
+        r->status = s->status;
+        r->code = s->code;
+        goto stop;
+    }
+    NEXT;
 op_RET:
     result = RA;
     base[0] = result;

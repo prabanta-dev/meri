@@ -256,5 +256,24 @@ if [ "$ACTION" = test ]; then
         echo "RUN $t"
         "$t" || status=1
     done
+    # the calls of C (progetto_ir.md § 11e): Limba's probes against its
+    # library of known signatures, built here, the output computed by hand
+    # by Limba (lir_run does not call C)
+    ffi="$LIMBA_DIR/tests/luxia/ffi"
+    if [ -f "$ffi/probe.c" ] && [ -x "$BIN/meri$SUFFIX" ]; then
+        echo "RUN probes.luxia against libprobe"
+        "$CC" -O2 -shared -fPIC -o "$OBJ/libprobe.so" "$ffi/probe.c" ||
+            status=1
+        for o in 0 1; do
+            if ! "$LIMBA_DIR/bin/$CPU-$OS/limba$SUFFIX" -O$o \
+                -o "$OBJ/probes-O$o.lir" "$ffi/probes.luxia" ||
+                ! "$BIN/meri$SUFFIX" --lib-path="$OBJ" "$OBJ/probes-O$o.lir" \
+                    >"$OBJ/probes-O$o.out" ||
+                ! cmp -s "$ffi/expected/probes.out" "$OBJ/probes-O$o.out"; then
+                echo "probes.luxia -O$o: not the expected output"
+                status=1
+            fi
+        done
+    fi
     exit $status
 fi

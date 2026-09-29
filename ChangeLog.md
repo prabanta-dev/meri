@@ -139,5 +139,14 @@
   every width, reals, registers exhausted, structs of every class, a
   result in memory, the alignment of the stack. Not yet reachable from
   a program: the language has no external declarations yet.
+- Calls of C libraries (IR version 5 of Limba ff801a9): a module of
+  another platform (module.target) is refused; every library is opened
+  and every symbol resolved before the first instruction, or nothing
+  runs; call.ext goes through the calling convention of Meri (a struct
+  by value as its bytes, a struct result written where the first operand
+  says, _Bool for i1, the generation taken off every pointer the C
+  sees); the C strings of runtime.def (cstr_*). meri --lib-path=DIR says
+  where the libraries are; build.sh test runs Limba's probes against its
+  library of known signatures, in every variant.
 - The repository: build script (it builds Limba first, in the same
   variant, and links every program with its library), licence, style.

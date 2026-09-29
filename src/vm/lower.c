@@ -26,6 +26,7 @@
  * instruction.
  */
 #include "vm/code.h"
+#include "vm/ffi.h"
 #include "vm/lower.h"
 #include "vm/vm.h"
 
@@ -882,9 +883,13 @@ static void call(L *l, uint32_t id, const limba_inst *in)
         emit(l, (uint32_t)in->imm);
         break;
     }
-    default: /* call.ext: an error when it runs */
+    default: /* call.ext: ffi.h */
+        if (a > 255 || in->imm < 0 || in->imm > 0xffff) {
+            fail(l, "a call of C past register 255 or extern 65535");
+            break;
+        }
         outgoing(l, o, in->nops);
-        emit(l, meri_abx(MERI_OP_CALLX, a, (uint32_t)in->imm & 0xffff));
+        emit(l, meri_abx(MERI_OP_CALLX, a, (uint32_t)in->imm));
     }
     if (meri_has_value(in))
         move(l, reg(l, id), a);
@@ -2978,6 +2983,7 @@ void meri_program_free(meri_program *p)
     }
     for (i = 0; i < p->nstrs; i++)
         free(p->strs[i]);
+    meri_ffi_free(p);
     free(p->fns);
     free(p->strs);
     free(p->str_ids);

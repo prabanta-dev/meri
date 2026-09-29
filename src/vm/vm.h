@@ -47,6 +47,12 @@ typedef struct {
     uint32_t nstrs, capstrs;
     uint8_t *holds_str; /* of each type of the module: has a str in it */
     bool failed;        /* while compiling */
+    /* the externs, resolved by meri_ffi_link (ffi.h); NULL before */
+    struct meri_ext *exts;
+    uint32_t nexts;
+    void **libs; /* the libraries opened */
+    limba_id *libnames;
+    uint32_t nlibs;
 } meri_program;
 
 /* a function the compiler cannot translate: which one and why */

@@ -371,6 +371,32 @@ static int strings(meri_state *s, uint32_t id, uint64_t *a)
     int n;
 
     switch (id) {
+    /* C strings (progetto_ir.md § 11e): memory of the C, malloc and free
+       of the C, outside the budget of the run */
+    case LIMBA_RT_CSTR_NEW: {
+        const meri_str *x = meri_str_of(a[0]);
+        char *c;
+        if (memchr(x->data, 0, x->len)) /* a 0 inside: no C string */
+            return meri_rt_trap(s, LIMBA_TRAP_RANGE) ? DONE : STOP;
+        if (x->len == SIZE_MAX || !(c = malloc(x->len + 1)))
+            return nomem(s);
+        memcpy(c, x->data, x->len);
+        c[x->len] = 0;
+        a[0] = (uint64_t)(uintptr_t)c;
+        return DONE;
+    }
+    case LIMBA_RT_CSTR_VALUE: { /* not null: checked before, in the IR */
+        const char *c = (const char *)(uintptr_t)MERI_ADDR(a[0]);
+        return ret_str(s, a, c, strlen(c)) ? DONE : STOP;
+    }
+    case LIMBA_RT_CSTR_VALUE_N: /* n >= 0: checked before, in the IR */
+        return ret_str(s, a, (const char *)(uintptr_t)MERI_ADDR(a[0]),
+                       (size_t)a[1])
+                   ? DONE
+                   : STOP;
+    case LIMBA_RT_CSTR_FREE:
+        free((void *)(uintptr_t)MERI_ADDR(a[0]));
+        return DONE;
     case LIMBA_RT_STR_CONCAT: {
         const meri_str *x = meri_str_of(a[0]), *y = meri_str_of(a[1]);
         meri_str *r;

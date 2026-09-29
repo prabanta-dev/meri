@@ -1,0 +1,59 @@
+; output: 3 1 4 5 3 127.0.0.1
+; result: 0
+; calls of the C library of the process (progetto_ir.md § 11e): div, a
+; struct of 8 bytes as its result, written at the address given first;
+; strlen of a C string made by cstr_new; labs of a long; strlen of a
+; block of the heap, and inet_ntoa of a struct by value read from one:
+; their pointers carry a generation the C must not see
+target "x86_64-linux"
+type %div = { i32 @0, i32 @4 } size 8 align 4
+extern @div : fn(i32, i32) -> %div = "div" in "c"
+extern @strlen : fn(ptr) -> i64 = "strlen" in "c"
+extern @labs : fn(i64) -> i64 = "labs" in "c"
+type %in = { i32 @0 } size 4 align 4
+extern @inet_ntoa : fn(%in) -> ptr = "inet_ntoa" in "c"
+
+func @main : fn() -> i64 {
+  slot 8 align 4
+b0:
+  v0 = slot ptr $0
+  v1 = iconst i32 7
+  v2 = iconst i32 2
+  call.ext void @div(v0, v1, v2)
+  v3 = load i32 v0
+  v4 = sext i64 v3
+  call.rt void print_i64(v4)
+  v5 = iconst i32 32
+  call.rt void print_char(v5)
+  v6 = iconst i64 4
+  v7 = addr ptr v0, v6, 1, 0
+  v8 = load i32 v7
+  v9 = sext i64 v8
+  call.rt void print_i64(v9)
+  call.rt void print_char(v5)
+  v10 = sconst str "ciao"
+  v11 = call.rt ptr cstr_new(v10)
+  v12 = call.ext i64 @strlen(v11)
+  call.rt void cstr_free(v11)
+  call.rt void print_i64(v12)
+  call.rt void print_char(v5)
+  v13 = iconst i64 -5
+  v14 = call.ext i64 @labs(v13)
+  call.rt void print_i64(v14)
+  call.rt void print_char(v5)
+  v16 = iconst i64 8
+  v17 = call.rt ptr mem_alloc(v16)
+  v18 = iconst i32 6513249
+  store v18, v17
+  v19 = call.ext i64 @strlen(v17)
+  call.rt void print_i64(v19)
+  call.rt void print_char(v5)
+  v20 = iconst i32 16777343
+  store v20, v17
+  v21 = call.ext ptr @inet_ntoa(v17)
+  v22 = call.rt str cstr_value(v21)
+  call.rt void print_str(v22)
+  call.rt void print_nl()
+  v15 = iconst i64 0
+  ret v15
+}

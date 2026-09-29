@@ -7,6 +7,7 @@
  */
 #include "limba/ir.h"
 #include "summary.h"
+#include "vm/ffi.h"
 #include "vm/vm.h"
 
 #include <errno.h>
@@ -29,6 +30,10 @@ static void usage(FILE *out)
           "Options (before the input)\n"
           "  --summary  print a summary of the module instead of running it\n"
           "  --disasm   print the bytecode instead of running it\n"
+          "  --lib-path=DIR\n"
+          "             a directory where the C libraries of the program are\n"
+          "             looked for before the system's (the option may be\n"
+          "             given more than once)\n"
           "  --max-memory=N[K|M|G]\n"
           "             the memory the program may use (blocks, strings,\n"
           "             globals, slots); past it, \"out of memory\". By\n"
@@ -156,6 +161,8 @@ int main(int argc, char **argv)
     uint8_t *buf;
     size_t len;
     int i, status;
+    const char *libdirs[64];
+    size_t nlibdirs = 0;
 
     for (i = 1; i < argc && !input; i++) {
         const char *a = argv[i];
@@ -170,6 +177,9 @@ int main(int argc, char **argv)
             summary = true;
         } else if (!strcmp(a, "--disasm")) {
             disasm = true;
+        } else if (!strncmp(a, "--lib-path=", 11)) {
+            if (nlibdirs < sizeof(libdirs) / sizeof(libdirs[0]))
+                libdirs[nlibdirs++] = a + 11;
         } else if (!strncmp(a, "--max-memory=", 13)) {
             if (!parse_size(a + 13, &max_memory)) {
                 fprintf(stderr, "meri: --max-memory: not a size: %s\n", a + 13);
@@ -212,6 +222,13 @@ int main(int argc, char **argv)
     p = meri_compile(m, &md);
     if (!p) {
         fprintf(stderr, "meri: %s: %s\n", input, md.msg);
+        limba_module_free(m);
+        return 1;
+    }
+    /* every library and symbol before the first instruction */
+    if (!disasm && !meri_ffi_link(p, libdirs, nlibdirs, &md)) {
+        fprintf(stderr, "meri: %s: %s\n", input, md.msg);
+        meri_program_free(p);
         limba_module_free(m);
         return 1;
     }

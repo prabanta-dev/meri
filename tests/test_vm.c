@@ -14,12 +14,15 @@
  *   "; strings: <n>"    strings still alive at the end (tests/vm only):
  *                       a missed release leaves one more
  *   "; refs: <n>"       the same for the numbers of BigInt
+ *   "; link: <text>"    the externs cannot be linked: the message says text,
+ *                       and nothing runs
  *   "; memory: broken"  a rule of the strings in memory broken: the first
  *                       cut of Meri does not check them, so it is skipped
  * The program is compiled, disassembled (to nothing) and run.
  */
 #define _GNU_SOURCE
 #include "limba/ir.h"
+#include "vm/ffi.h"
 #include "vm/vm.h"
 
 #include <dirent.h>
@@ -69,6 +72,7 @@ typedef struct {
     int status;
     int64_t value; /* the trap code or the result */
     bool has_result, has_at, has_strings, has_refs, skip;
+    char link[128]; /* the linking must fail with this in its message */
     uint64_t strings, refs;
     unsigned line, col;
 } expect;
@@ -95,6 +99,9 @@ static void header(const char *text, expect *e)
         } else if (!strncmp(p, "; strings: ", 11)) {
             e->strings = strtoull(p + 11, NULL, 10);
             e->has_strings = true;
+        } else if (!strncmp(p, "; link: ", 8) && n - 8 < sizeof(e->link)) {
+            memcpy(e->link, p + 8, n - 8);
+            e->link[n - 8] = 0;
         } else if (!strncmp(p, "; refs: ", 8)) {
             e->refs = strtoull(p + 8, NULL, 10);
             e->has_refs = true;
@@ -151,6 +158,18 @@ static void one(const char *path)
     if (null) {
         meri_disasm(p, null);
         fclose(null);
+    }
+    {
+        meri_diag ld;
+        bool linked = meri_ffi_link(p, NULL, 0, &ld);
+        if (!linked || e.link[0]) {
+            CHECK(!linked && e.link[0] && strstr(ld.msg, e.link),
+                  "%s: linking: \"%s\", expected a failure with \"%s\"", path,
+                  linked ? "done" : ld.msg, e.link);
+            meri_program_free(p);
+            limba_module_free(m);
+            return;
+        }
     }
     o = open_memstream(&out, &outlen);
     in = fopen("/dev/null", "r");

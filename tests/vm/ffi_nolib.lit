@@ -1,0 +1,10 @@
+; link: library meri_no_such_library not found
+; a library that is not there stops the program before its first
+; instruction, with its name
+extern @f : fn() -> i64 = "f" in "meri_no_such_library"
+
+func @main : fn() -> i64 {
+b0:
+  v0 = call.ext i64 @f()
+  ret v0
+}
