@@ -4,9 +4,32 @@ signature gmp-6.3.0.tar.xz.sig verified on 29 September 2026: good
 signature by Niels Möller, key 343C 2FF0 FBEE 5EC2 EDBE F399 F359 9FF8
 28C6 7298, made on 30 July 2023 while the key was valid).
 
-Files copied unchanged from gmp-6.3.0/: mini-gmp/mini-gmp.c,
-mini-gmp/mini-gmp.h, mini-gmp/README, COPYINGv2, COPYINGv3,
-COPYING.LESSERv3. mini-gmp is licensed under the GNU LGPL version 3 or
+Files copied from gmp-6.3.0/: mini-gmp/mini-gmp.c, mini-gmp/mini-gmp.h,
+mini-gmp/README, COPYINGv2, COPYINGv3, COPYING.LESSERv3; all unchanged
+but one change to mini-gmp.c, marked MERI there.
+
+The change: where the compiler has an unsigned type of 128 bits
+(__SIZEOF_INT128__), gmp_umul_ppmm multiplies two limbs with it, one
+multiplication of the CPU instead of four of their halves; elsewhere the
+macro is the original. mpn_mul_1, mpn_addmul_1, mpn_submul_1 and the
+division by an inverse use it: pidigits runs in about half the time. The
+difference from gmp-6.3.0/mini-gmp/mini-gmp.c:
+
+133a134,143
+> /* MERI: where the compiler has a type of 128 bits, one multiplication
+>    of the CPU for two limbs, not four of their halves (PROVENANCE) */
+> #if defined(__SIZEOF_INT128__)
+> #define gmp_umul_ppmm(w1, w0, u, v)					\
+>   do {									\
+>     unsigned __int128 __ww = (unsigned __int128) (u) * (v);		\
+>     w0 = (mp_limb_t) __ww;						\
+>     w1 = (mp_limb_t) (__ww >> GMP_LIMB_BITS);				\
+>   } while (0)
+> #else
+173a184
+> #endif /* MERI */
+
+mini-gmp is licensed under the GNU LGPL version 3 or
 later, or the GNU GPL version 2 or later, at the user's option; Meri,
 GPL-3.0-or-later, uses it under the GPL.
 

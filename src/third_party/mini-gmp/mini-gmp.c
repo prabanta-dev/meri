@@ -131,6 +131,16 @@ see https://www.gnu.org/licenses/.  */
     (sl) = __x;								\
   } while (0)
 
+/* MERI: where the compiler has a type of 128 bits, one multiplication
+   of the CPU for two limbs, not four of their halves (PROVENANCE) */
+#if defined(__SIZEOF_INT128__)
+#define gmp_umul_ppmm(w1, w0, u, v)					\
+  do {									\
+    unsigned __int128 __ww = (unsigned __int128) (u) * (v);		\
+    w0 = (mp_limb_t) __ww;						\
+    w1 = (mp_limb_t) (__ww >> GMP_LIMB_BITS);				\
+  } while (0)
+#else
 #define gmp_umul_ppmm(w1, w0, u, v)					\
   do {									\
     int LOCAL_GMP_LIMB_BITS = GMP_LIMB_BITS;				\
@@ -171,6 +181,7 @@ see https://www.gnu.org/licenses/.  */
       (w0) = (__x1 << (GMP_LIMB_BITS / 2)) + (__x0 & GMP_LLIMB_MASK);	\
     }									\
   } while (0)
+#endif /* MERI */
 
 /* If mp_limb_t is of size smaller than int, plain u*v implies
    automatic promotion to *signed* int, and then multiply may overflow

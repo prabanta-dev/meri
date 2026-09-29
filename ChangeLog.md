@@ -127,5 +127,9 @@
   big_cmp is -1, 0 or 1; the powers of 0, 1 and -1 are exact; a power
   that cannot fit is refused before it is made. test_vm checks the
   numbers alive at the end (; refs:).
+- mini-gmp multiplies two limbs with one multiplication of the CPU
+  (unsigned __int128, where the compiler has it), not four of their
+  halves: the one change to its source, in PROVENANCE. pidigits with
+  BigInt runs in about half the time.
 - The repository: build script (it builds Limba first, in the same
   variant, and links every program with its library), licence, style.
