@@ -2886,6 +2886,18 @@ static void function(meri_program *p, uint32_t fid, meri_diag *d)
                 fail(&l, "a jump too far");
             l.code[l.fix[i].at] = meri_sj(MERI_OP_JMP, (int32_t)off);
         }
+        /* a jump to a JMP goes where that one goes: a few steps at most
+           (a JMP to itself is a loop that never ends); every target is
+           the start of an instruction */
+        for (i = 0; i < l.nfix && !l.failed; i++) {
+            int64_t at = l.fix[i].at, to = at + 1 + MERI_W_SJ(l.code[at]);
+            uint32_t step;
+            for (step = 0;
+                 step < 8 && to != at && MERI_W_OP(l.code[to]) == MERI_OP_JMP;
+                 step++)
+                to += 1 + MERI_W_SJ(l.code[to]);
+            l.code[at] = meri_sj(MERI_OP_JMP, (int32_t)(to - at - 1));
+        }
     } else {
         l.cur = 0;
         emit(&l, meri_abc(MERI_OP_UNREACH, 0, 0, 0));

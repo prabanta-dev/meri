@@ -64,7 +64,7 @@ typedef struct {
        LIMBA_NONE for any other; NULL for none at all */
     const uint32_t *base_of;
     /* the blocks in the order they are emitted, block 0 first; NULL for
-       the order of the IR. The intervals follow it */
+       the order of the IR. The pieces of life follow it */
     const uint32_t *order;
 } meri_fusion;
 

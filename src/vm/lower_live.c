@@ -7,20 +7,21 @@
  * IR if none is given), the instructions numbered one after the other;
  * the parameters of a block are defined at its first number. Liveness is solved
  * on the blocks, the arguments of a jump being uses at its terminator. Each
- * value then gets one interval, the hull of every point where it is alive:
- * coarser than the exact ranges, never smaller. Linear scan gives registers
- * from the lowest free one; two values share a register only if their intervals
- * are disjoint, or if one ends where the other begins: an instruction reads all
- * its operands before it writes its result. Not a str that ends there: it is
- * released from its register after the instruction. A parameter of a
- * block and the arguments passed to it prefer the same register, so that
- * their copy disappears.
+ * value then gets its pieces: in each block where it is alive, the hull of
+ * its points there; exact between blocks, coarser inside one, never
+ * smaller. The values, by the start of their first piece, take the lowest
+ * register their pieces fit in; two values share a register only if their
+ * pieces are disjoint, or if one ends where the other begins: an
+ * instruction reads all its operands before it writes its result. Not a str
+ * that ends there: it is released from its register after the instruction. A
+ * parameter of a block and the arguments passed to it prefer the same register,
+ * so that their copy disappears.
  *
  * The copies of the arguments of a jump are written at the terminator of
  * the source, before the target block begins: a register they write may
  * hold a value alive at that point only if the value is dead after the
  * jump (a value alive after it is alive at the start of the target, where
- * the parameter is defined, so their intervals meet), or if it is one of
+ * the parameter is defined, so their pieces meet), or if it is one of
  * the sources of the same parallel copy.
  */
 #include "vm/lower.h"
@@ -300,27 +301,148 @@ static void live_free(live *l)
     free(l->keep);
 }
 
-/* ---- intervals and registers ---- */
+/* ---- pieces of life, and registers ---- */
+
+#define NOPIECE UINT32_MAX
+
+/* where a value is alive, block by block: in each block of the layout
+   the hull of its points there (its definition, its uses, the start of
+   the block if alive on entry, the end if alive on exit). Exact between
+   blocks, coarse only inside one: a value alive after the end of a loop
+   leaves a hole where the loop does not need it */
+typedef struct {
+    uint32_t start, end, next; /* next: the following piece, or NOPIECE */
+} piece;
 
 typedef struct {
-    uint32_t start, end, value;
-} interval;
+    const uint32_t *rep; /* the value whose register a value has */
+    const uint8_t *has;  /* of each value: it needs a register */
+    uint32_t *lo, *hi;   /* of each value, in the block being walked */
+    uint32_t *touched, ntouched;
+    piece *pc;
+    uint32_t npc, cappc;
+    uint32_t *head, *tail; /* of each value: its first and last piece */
+} lives;
 
-static int by_start(const void *x, const void *y)
+static void touch(lives *z, uint32_t v, uint32_t p)
 {
-    const interval *a = x, *b = y;
-
-    if (a->start != b->start)
-        return a->start < b->start ? -1 : 1;
-    return a->value < b->value ? -1 : a->value > b->value;
+    v = z->rep[v];
+    if (!z->has[v])
+        return;
+    if (z->lo[v] == NOPIECE) {
+        z->lo[v] = z->hi[v] = p;
+        z->touched[z->ntouched++] = v;
+    } else if (p < z->lo[v]) {
+        z->lo[v] = p;
+    } else if (p > z->hi[v]) {
+        z->hi[v] = p;
+    }
 }
 
-static void widen(interval *iv, uint32_t p)
+/* the hulls of the block walked appended to their values: the blocks
+   come in the order of the positions, so a piece never begins before the
+   last one of its value */
+static bool flush(lives *z)
 {
-    if (p < iv->start)
-        iv->start = p;
-    if (p > iv->end)
-        iv->end = p;
+    uint32_t i;
+
+    for (i = 0; i < z->ntouched; i++) {
+        uint32_t v = z->touched[i], t = z->tail[v];
+        if (t != NOPIECE && z->lo[v] <= z->pc[t].end + 1) {
+            if (z->hi[v] > z->pc[t].end)
+                z->pc[t].end = z->hi[v]; /* blocks side by side: one */
+        } else {
+            if (z->npc == z->cappc) {
+                uint32_t cap = z->cappc ? 2 * z->cappc : 256;
+                piece *q = cap > UINT32_MAX / 2
+                               ? NULL
+                               : realloc(z->pc, (size_t)cap * sizeof(piece));
+                if (!q)
+                    return false;
+                z->pc = q;
+                z->cappc = cap;
+            }
+            z->pc[z->npc] = (piece){z->lo[v], z->hi[v], NOPIECE};
+            if (t == NOPIECE)
+                z->head[v] = z->npc;
+            else
+                z->pc[t].next = z->npc;
+            z->tail[v] = z->npc++;
+        }
+        z->lo[v] = NOPIECE;
+    }
+    z->ntouched = 0;
+    return true;
+}
+
+/* the pieces of the values a register holds, by start (and by end: two
+   of them meet at most at one point, so the ends are in order too) */
+typedef struct {
+    uint32_t start, end;
+    bool counted; /* of a str or a ref: released after its last use */
+} seg;
+
+typedef struct {
+    seg *s;
+    uint32_t n, cap;
+} segs;
+
+/* true if value v, defined at def, can take the register whose pieces
+   are r: they meet nowhere, or a piece ends at the instruction that
+   defines v (it reads its operands before it writes its result). Not a
+   str or a ref that ends there: it is released after the instruction.
+   Not a parameter of a block: the parameters begin together */
+static bool fits(const segs *r, const lives *z, uint32_t v, uint32_t def,
+                 bool param)
+{
+    uint32_t k;
+
+    for (k = z->head[v]; k != NOPIECE; k = z->pc[k].next) {
+        uint32_t s = z->pc[k].start, e = z->pc[k].end, lo = 0, hi = r->n;
+        while (lo < hi) { /* the first that ends at s or later */
+            uint32_t mid = lo + (hi - lo) / 2;
+            if (r->s[mid].end < s)
+                lo = mid + 1;
+            else
+                hi = mid;
+        }
+        for (; lo < r->n && r->s[lo].start <= e; lo++)
+            if (r->s[lo].end != s || s != def || r->s[lo].counted || param)
+                return false;
+    }
+    return true;
+}
+
+static bool place(segs *r, const lives *z, uint32_t v, bool counted)
+{
+    uint32_t k;
+
+    for (k = z->head[v]; k != NOPIECE; k = z->pc[k].next) {
+        seg g = {z->pc[k].start, z->pc[k].end, counted};
+        uint32_t lo = 0, hi = r->n;
+        if (r->n == r->cap) {
+            uint32_t cap = r->cap ? 2 * r->cap : 8;
+            seg *q = cap > UINT32_MAX / 2
+                         ? NULL
+                         : realloc(r->s, (size_t)cap * sizeof(seg));
+            if (!q)
+                return false;
+            r->s = q;
+            r->cap = cap;
+        }
+        while (lo < hi) { /* after those that begin before it */
+            uint32_t mid = lo + (hi - lo) / 2;
+            if (r->s[mid].start < g.start ||
+                (r->s[mid].start == g.start && r->s[mid].end <= g.end))
+                lo = mid + 1;
+            else
+                hi = mid;
+        }
+        memmove(r->s + lo + 1, r->s + lo, (r->n - lo) * sizeof(seg));
+        r->s[lo] = g;
+        r->n++;
+    }
+    return true;
 }
 
 /* the comparisons whose only use is the cbr right after them */
@@ -441,27 +563,91 @@ static void hints_free(hints *h)
     free(h->hint);
 }
 
+typedef struct {
+    uint32_t start, value;
+} entry;
+
+static int by_start(const void *x, const void *y)
+{
+    const entry *a = x, *b = y;
+
+    if (a->start != b->start)
+        return a->start < b->start ? -1 : 1;
+    return a->value < b->value ? -1 : a->value > b->value;
+}
+
+/* the pieces of registers 0 .. need - 1 at hand, the new ones empty */
+static bool regs_grow(segs **rs, uint32_t *n, uint32_t need)
+{
+    segs *q;
+
+    if (need <= *n)
+        return true;
+    q = realloc(*rs, (size_t)need * sizeof(segs));
+    if (!q)
+        return false;
+    memset(q + *n, 0, (size_t)(need - *n) * sizeof(segs));
+    *rs = q;
+    *n = need;
+    return true;
+}
+
+static bool is_str(const limba_func *f, uint32_t v);
+
+/* true if a value related to p has a register: p would rather have it */
+static bool related_given(const hints *h, const meri_alloc *a,
+                          const uint32_t *rep, uint32_t p)
+{
+    uint32_t k;
+
+    for (k = h->first[p]; k < h->first[p + 1]; k++)
+        if (a->reg[rep[h->hint[k]]] != MERI_NOREG)
+            return true;
+    return false;
+}
+
+/* true if the pieces of v and w meet nowhere, not even at a point */
+static bool apart(const lives *z, uint32_t v, uint32_t w)
+{
+    uint32_t x = z->head[v], y = z->head[w];
+
+    while (x != NOPIECE && y != NOPIECE) {
+        if (z->pc[x].end < z->pc[y].start)
+            x = z->pc[x].next;
+        else if (z->pc[y].end < z->pc[x].start)
+            y = z->pc[y].next;
+        else
+            return false;
+    }
+    return true;
+}
+
 bool meri_alloc_regs(const limba_func *f, uint32_t max, uint32_t skip,
                      uint32_t nskip, const meri_fusion *fu, meri_alloc *a)
 {
     live l = {0};
-    interval *iv = NULL, *active = NULL;
-    uint32_t *at = NULL; /* value -> index in iv */
-    uint32_t n = 0, nactive = 0, b, i, k, s, j;
-    uint64_t *freeset = NULL; /* a bit for each register free */
-    size_t nwords = ((size_t)max + 63) / 64, wi;
+    lives z = {0};
+    size_t ni = (size_t)f->ninsts + 1, w;
+    uint32_t *rep = malloc(ni * sizeof(uint32_t));
+    uint8_t *has = calloc(ni, 1);
+    entry *ord = malloc(ni * sizeof(entry));
+    segs *rs = NULL; /* of each register */
+    uint32_t nrs = 0, n = 0, ob, b, i, k, s, j;
     hints h = {0};
     bool ok = false;
 
     memset(a, 0, sizeof(*a));
-    a->reg = malloc(((size_t)f->ninsts + 1) * sizeof(uint16_t));
-    a->fused = calloc((size_t)f->ninsts + 1, 1);
-    iv = malloc(((size_t)f->ninsts + 1) * sizeof(interval));
-    active = malloc(((size_t)f->ninsts + 1) * sizeof(interval));
-    at = malloc(((size_t)f->ninsts + 1) * sizeof(uint32_t));
-    freeset = calloc(nwords + 1, sizeof(uint64_t));
-    if (!a->reg || !a->fused || !iv || !active || !at || !freeset ||
-        max > MERI_NOREG ||
+    a->reg = malloc(ni * sizeof(uint16_t));
+    a->fused = calloc(ni, 1);
+    z.rep = rep;
+    z.has = has;
+    z.lo = malloc(ni * sizeof(uint32_t));
+    z.hi = malloc(ni * sizeof(uint32_t));
+    z.touched = malloc(ni * sizeof(uint32_t));
+    z.head = malloc(ni * sizeof(uint32_t));
+    z.tail = malloc(ni * sizeof(uint32_t));
+    if (!a->reg || !a->fused || !rep || !has || !ord || !z.lo || !z.hi ||
+        !z.touched || !z.head || !z.tail || max > MERI_NOREG ||
         !live_init(&l, f, fu ? fu->hoist : NULL, fu ? fu->base_of : NULL,
                    fu ? fu->order : NULL) ||
         !hints_make(f, &h))
@@ -471,143 +657,169 @@ bool meri_alloc_regs(const limba_func *f, uint32_t max, uint32_t skip,
 
     for (i = 0; i < f->ninsts; i++) {
         a->reg[i] = MERI_NOREG;
-        at[i] = UINT32_MAX;
+        rep[i] = i;
+        z.lo[i] = z.head[i] = z.tail[i] = NOPIECE;
         if (fu && fu->absorbed[i])
             a->fused[i] = 1; /* no register, as a fused comparison */
-        if (meri_has_value(&f->insts[i]) && !a->fused[i]) {
-            at[i] = n;
-            iv[n++] = (interval){l.pos[i], l.pos[i], i};
-        }
+        has[i] = meri_has_value(&f->insts[i]) && !a->fused[i];
     }
-    /* uses, and the blocks where a value is alive on entry or exit */
-    for (i = 0; i < f->ninsts; i++) {
-        meri_span sp[3];
-        uint32_t ns = meri_value_spans(f, &f->insts[i], sp);
-        uint32_t where =
-            l.pos[fu && fu->anchor[i] != LIMBA_NONE ? fu->anchor[i] : i];
-        for (s = 0; s < ns; s++)
-            for (j = 0; j < sp[s].n; j++) {
-                uint32_t u = sp[s].o[j];
-                if (at[u] != UINT32_MAX)
-                    widen(&iv[at[u]], where);
-                if (l.keep && l.keep[u] != LIMBA_NONE &&
-                    at[l.keep[u]] != UINT32_MAX)
-                    widen(&iv[at[l.keep[u]]], where);
-            }
-    }
-    for (b = 0; b < f->nblocks; b++) {
-        const uint64_t *in = set_of(l.in, l.words, b);
-        const uint64_t *out = set_of(l.out, l.words, b);
-        for (i = 0; i < f->ninsts; i++) {
-            if (at[i] == UINT32_MAX)
-                continue;
-            if (set_has(in, i))
-                widen(&iv[at[i]], l.bstart[b]);
-            if (set_has(out, i))
-                widen(&iv[at[i]], l.bend[b]);
-        }
-    }
-
-    /* a copy lives in the register of its source: one interval for both.
-       Before the entry parameters enter the active list, so that one that
-       is the source of a copy enters it with its whole interval */
+    /* a copy lives in the register of its source: the points of both
+       are those of the source */
     if (fu && fu->alias)
         for (i = 0; i < f->ninsts; i++) {
             uint32_t r0 = i;
-            if (fu->alias[i] == LIMBA_NONE || at[i] == UINT32_MAX)
+            if (fu->alias[i] == LIMBA_NONE || !has[i])
                 continue;
             while (fu->alias[r0] != LIMBA_NONE)
                 r0 = fu->alias[r0];
-            if (at[r0] == UINT32_MAX)
-                continue; /* the source has no register: keep its own */
-            widen(&iv[at[r0]], iv[at[i]].start);
-            widen(&iv[at[r0]], iv[at[i]].end);
-            iv[at[i]].start = UINT32_MAX; /* not given on its own */
+            if (has[r0]) /* else it is given its own */
+                rep[i] = r0;
         }
+
+    /* the pieces, block by block in the layout. The operands of an
+       absorbed instruction are read at its anchor, in the same block
+       (lower.c fuses only inside a block) */
+    for (ob = 0; ob < f->nblocks; ob++) {
+        const limba_block *bl;
+        const uint64_t *in, *out;
+
+        b = fu && fu->order ? fu->order[ob] : ob;
+        bl = &f->blocks[b];
+        if (ob == 0 && fu && fu->hoist) /* defined before block 0 */
+            for (i = 0; i < f->ninsts; i++)
+                if (fu->hoist[i])
+                    touch(&z, i, 0);
+        in = set_of(l.in, l.words, b);
+        out = set_of(l.out, l.words, b);
+        for (w = 0; w < l.words; w++) {
+            uint64_t x = in[w], y = out[w];
+            for (; x; x &= x - 1)
+                touch(&z, (uint32_t)(w * 64) + (uint32_t)__builtin_ctzll(x),
+                      l.bstart[b]);
+            for (; y; y &= y - 1)
+                touch(&z, (uint32_t)(w * 64) + (uint32_t)__builtin_ctzll(y),
+                      l.bend[b]);
+        }
+        for (k = 0; k < bl->ninsts; k++) {
+            uint32_t id = bl->insts[k], where, ns;
+            meri_span sp[3];
+            if (fu && fu->hoist && fu->hoist[id])
+                continue;
+            touch(&z, id, l.pos[id]);
+            where =
+                l.pos[fu && fu->anchor[id] != LIMBA_NONE ? fu->anchor[id] : id];
+            ns = meri_value_spans(f, &f->insts[id], sp);
+            for (s = 0; s < ns; s++)
+                for (j = 0; j < sp[s].n; j++) {
+                    uint32_t u = sp[s].o[j];
+                    touch(&z, u, where);
+                    if (l.keep && l.keep[u] != LIMBA_NONE)
+                        touch(&z, l.keep[u], where);
+                }
+        }
+        if (!flush(&z))
+            goto done;
+    }
+    for (i = 0; i < f->ninsts; i++)
+        if (has[i] && rep[i] == i && z.head[i] != NOPIECE)
+            ord[n++] = (entry){z.pc[z.head[i]].start, i};
+
     /* the parameters of the entry block take 0 .. n - 1, the convention
-       of a call; they begin at 0 and come first in the order */
-    for (k = 0; k < max; k++)
-        if (k < skip || k >= skip + nskip)
-            freeset[k / 64] |= 1ull << (k % 64);
+       of a call */
     if (f->nblocks) {
         const limba_block *e = &f->blocks[0];
-        if (e->nparams > max || e->nparams > skip)
+        if (e->nparams > max || e->nparams > skip ||
+            !regs_grow(&rs, &nrs, e->nparams))
             goto done;
         for (k = 0; k < e->nparams; k++) {
             uint32_t v = e->insts[k];
             a->reg[v] = (uint16_t)k;
-            freeset[k / 64] &= ~(1ull << (k % 64));
-            active[nactive++] = iv[at[v]];
+            if (!place(&rs[k], &z, v, is_str(f, v)))
+                goto done;
             if (k + 1 > a->nregs)
                 a->nregs = k + 1;
         }
     }
-    qsort(iv, n, sizeof(interval), by_start);
+    qsort(ord, n, sizeof(entry), by_start);
     for (i = 0; i < n; i++) {
-        uint32_t v = iv[i].value, r;
+        uint32_t v = ord[i].value, r = max, def = l.pos[v], mate = NOPIECE;
+        bool param = f->insts[v].op == LIMBA_OP_PARAM;
 
-        if (iv[i].start == UINT32_MAX)
-            break; /* the copies, last after the sort: given below */
         if (a->reg[v] != MERI_NOREG)
             continue; /* an entry parameter, given already */
-        for (k = 0; k < nactive;) {
-            uint32_t av = active[k].value;
-            /* disjoint, or ending at the instruction that defines the
-               new one: its start must be its definition (not a point
-               where it is only alive, before a later definition in the
-               layout), and not the head of a block, where parameters
-               begin together */
-            if (active[k].end < iv[i].start ||
-                (active[k].end == iv[i].start && iv[i].start == l.pos[v] &&
-                 f->insts[av].type != LIMBA_T_STR &&
-                 f->insts[av].type != LIMBA_T_REF &&
-                 f->insts[v].op != LIMBA_OP_PARAM)) {
-                r = a->reg[active[k].value];
-                freeset[r / 64] |= 1ull << (r % 64);
-                active[k] = active[--nactive];
-            } else {
-                k++;
-            }
-        }
-        /* a register a related value has, if free; else the lowest */
-        r = max;
+        /* a register a related value has, if it fits: one of its own,
+           else one of the values related to a related value that has no
+           register yet (the other arguments of the same parameter);
+           else the lowest */
         for (k = h.first[v]; k < h.first[v + 1] && r == max; k++) {
-            uint16_t q = a->reg[h.hint[k]];
-            if (q != MERI_NOREG && q < max && freeset[q / 64] >> (q % 64) & 1)
+            uint16_t q = a->reg[rep[h.hint[k]]];
+            if (q != MERI_NOREG && q < max &&
+                (q >= nrs || fits(&rs[q], &z, v, def, param)))
                 r = q;
         }
-        if (r == max) {
-            for (wi = 0; wi < nwords && !freeset[wi]; wi++)
-                ;
-            if (wi == nwords)
-                goto done;
-            r = (uint32_t)(wi * 64) + (uint32_t)__builtin_ctzll(freeset[wi]);
-            if (r >= max)
-                goto done;
+        for (k = h.first[v]; k < h.first[v + 1] && r == max; k++) {
+            uint32_t p = rep[h.hint[k]], m;
+            if (a->reg[p] != MERI_NOREG)
+                continue;
+            for (m = h.first[p]; m < h.first[p + 1] && r == max; m++) {
+                uint16_t q = a->reg[rep[h.hint[m]]];
+                if (q != MERI_NOREG && q < max &&
+                    (q >= nrs || fits(&rs[q], &z, v, def, param)))
+                    r = q;
+            }
         }
-        freeset[r / 64] &= ~(1ull << (r % 64));
+        /* no related value has a register (if one has, its register did
+           not fit, and a copy is left to its edge): the first related one
+           that v never meets, and whose related values have no register
+           either, takes with v the lowest register both fit */
+        for (k = h.first[v]; k < h.first[v + 1] && r == max; k++) {
+            uint32_t p = rep[h.hint[k]];
+            if (a->reg[p] != MERI_NOREG) {
+                mate = NOPIECE;
+                break;
+            }
+            if (mate == NOPIECE && p != v && z.head[p] != NOPIECE &&
+                !related_given(&h, a, rep, p) && apart(&z, v, p))
+                mate = p;
+        }
+        for (k = 0; k < max && r == max; k++)
+            if ((k < skip || k >= skip + nskip) &&
+                (k >= nrs || (fits(&rs[k], &z, v, def, param) &&
+                              (mate == NOPIECE ||
+                               fits(&rs[k], &z, mate, l.pos[mate],
+                                    f->insts[mate].op == LIMBA_OP_PARAM)))))
+                r = k;
+        if (mate != NOPIECE && r != max) {
+            if (!regs_grow(&rs, &nrs, r + 1) ||
+                !place(&rs[r], &z, mate, is_str(f, mate)))
+                goto done;
+            a->reg[mate] = (uint16_t)r; /* nregs: with v, below */
+        }
+        if (r == max || !regs_grow(&rs, &nrs, r + 1) ||
+            !place(&rs[r], &z, v, is_str(f, v)))
+            goto done;
         a->reg[v] = (uint16_t)r;
-        active[nactive++] = iv[i];
         if (r + 1 > a->nregs)
             a->nregs = r + 1;
     }
-    if (fu && fu->alias)
-        for (i = 0; i < f->ninsts; i++) {
-            uint32_t r0 = i;
-            if (fu->alias[i] == LIMBA_NONE || at[i] == UINT32_MAX)
-                continue;
-            while (fu->alias[r0] != LIMBA_NONE)
-                r0 = fu->alias[r0];
-            if (at[r0] != UINT32_MAX) /* else it was given its own */
-                a->reg[i] = a->reg[r0];
-        }
+    for (i = 0; i < f->ninsts; i++)
+        if (rep[i] != i)
+            a->reg[i] = a->reg[rep[i]];
     ok = true;
 done:
     live_free(&l);
-    free(iv);
-    free(active);
-    free(at);
-    free(freeset);
+    for (k = 0; k < nrs; k++)
+        free(rs[k].s);
+    free(rs);
+    free(rep);
+    free(has);
+    free(ord);
+    free(z.lo);
+    free(z.hi);
+    free(z.touched);
+    free(z.head);
+    free(z.tail);
+    free(z.pc);
     hints_free(&h);
     return ok;
 }

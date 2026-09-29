@@ -152,5 +152,11 @@
   signature passes extended as its marker says (zext with zeros, sext
   with its sign). build.sh test runs the probes against libprobe built
   by gcc and by clang, whose callees rely on that extension.
+- Registers from pieces of life: a value is alive, block by block, where
+  liveness says, with holes between blocks, no longer one interval from
+  its first point to its last. A value takes the register of a parameter
+  it is passed to when their pieces allow it, even before that parameter
+  has one; more loops end in LOOP and fewer copies are left on their
+  edges. A jump to a JMP goes where that one goes.
 - The repository: build script (it builds Limba first, in the same
   variant, and links every program with its library), licence, style.
