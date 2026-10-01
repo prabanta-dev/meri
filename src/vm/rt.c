@@ -518,6 +518,84 @@ static bool maths(uint32_t id, uint64_t *a)
     return true;
 }
 
+/* swaps the n elements of size bytes at p end for end */
+static void reverse(unsigned char *p, uint64_t n, uint64_t size)
+{
+    unsigned char *q = p + (n - 1) * size, t[64];
+
+    for (; n > 1; n -= 2, p += size, q -= size) {
+        uint64_t k, c;
+        switch (size) {
+        case 1: {
+            unsigned char x = *p;
+            *p = *q, *q = x;
+            break;
+        }
+#define SWAP(T)                                                                \
+    {                                                                          \
+        T x, y;                                                                \
+        memcpy(&x, p, sizeof x), memcpy(&y, q, sizeof y);                      \
+        memcpy(p, &y, sizeof y), memcpy(q, &x, sizeof x);                      \
+        break;                                                                 \
+    }
+        case 2:
+            SWAP(uint16_t)
+        case 4:
+            SWAP(uint32_t)
+        case 8:
+            SWAP(uint64_t)
+#undef SWAP
+        default:
+            for (k = 0; k < size; k += c) {
+                c = size - k < sizeof t ? size - k : sizeof t;
+                memcpy(t, p + k, c);
+                memcpy(p + k, q + k, c);
+                memcpy(q + k, t, c);
+            }
+        }
+    }
+}
+
+/* the routines of arrays (luxia_0.md § 9.5): everything checked before,
+   in the IR; with n = 0 no pointer is read */
+static int arrays(uint32_t id, uint64_t *a)
+{
+    unsigned char *p = (unsigned char *)(uintptr_t)MERI_ADDR(a[0]);
+    uint64_t n = a[1], i;
+
+    switch (id) {
+    case LIMBA_RT_MEM_TRANSLATE: { /* the table first: it may be a */
+        unsigned char t[256];
+        if (n) {
+            memcpy(t, (const void *)(uintptr_t)MERI_ADDR(a[2]), sizeof t);
+            for (i = 0; i < n; i++)
+                p[i] = t[p[i]];
+        }
+        return DONE;
+    }
+    case LIMBA_RT_MEM_REVERSE:
+        if (n > 1)
+            reverse(p, n, a[2]);
+        return DONE;
+    case LIMBA_RT_MEM_COUNT: { /* non-overlapping, from the left; m >= 1 */
+        const unsigned char *x =
+            (const unsigned char *)(uintptr_t)MERI_ADDR(a[2]);
+        uint64_t m = a[3], c = 0;
+        const unsigned char *e = p + n, *f;
+        /* the first byte by memchr, the rest compared (memmem is not C) */
+        for (f = p; (uint64_t)(e - f) >= m &&
+                    (f = memchr(f, x[0], (size_t)(e - f - (m - 1))));)
+            if (!memcmp(f + 1, x + 1, (size_t)(m - 1)))
+                c++, f += m;
+            else
+                f++;
+        a[0] = c;
+        return DONE;
+    }
+    }
+    return NOT_MINE;
+}
+
 bool meri_rt_call(meri_state *s, uint32_t id, uint64_t *a)
 {
     int r;
@@ -565,8 +643,9 @@ bool meri_rt_call(meri_state *s, uint32_t id, uint64_t *a)
         return true;
     if ((r = meri_big_call(s, id, a)) >= 0)
         return r == 1;
-    if ((r = console(s, id, a)) == NOT_MINE)
-        r = strings(s, id, a);
+    if ((r = console(s, id, a)) == NOT_MINE &&
+        (r = strings(s, id, a)) == NOT_MINE)
+        r = arrays(id, a);
     if (r == NOT_MINE) { /* a table newer than this runtime */
         s->status = MERI_UNSUPPORTED;
         return false;

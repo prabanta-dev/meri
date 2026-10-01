@@ -1,0 +1,112 @@
+; output: 1
+; output: 2
+; output: 7
+; output: 4
+; output: 1
+; output: 3
+; output: 3
+; output: 1
+; result: 0
+; the routines of arrays where the random net does not go: mem_count of
+; a pattern whose first byte is found without the rest ("ab" in "xaxbab":
+; 1), of "aa" in "aaaaa" (2, never overlapping); mem_reverse of three
+; elements of 12 bytes (not 1, 2, 4 or 8: the general swap), 1 2 3,
+; 4 5 6, 7 8 9 become 7 8 9, 4 5 6, 1 2 3 (i32 0, 3, 6 and 8 shown); of
+; three i16
+func @put : fn(ptr, i64, i32) -> void {
+b0(v0: ptr, v1: i64, v2: i32):
+  v3 = addr ptr v0, v1, 4, 0
+  store v2, v3
+  ret
+}
+
+func @show : fn(ptr, i64) -> void {
+b0(v0: ptr, v1: i64):
+  v3 = addr ptr v0, v1, 4, 0
+  v4 = load i32 v3
+  v5 = sext i64 v4
+  call.rt void print_i64(v5)
+  call.rt void print_nl()
+  ret
+}
+
+func @main : fn() -> i64 {
+  slot 40 align 8
+b0:
+  v0 = sconst str "xaxbab"
+  v1 = call.rt ptr str_ptr(v0)
+  v2 = sconst str "ab"
+  v3 = call.rt ptr str_ptr(v2)
+  v4 = iconst i64 6
+  v5 = iconst i64 2
+  v6 = call.rt i64 mem_count(v1, v4, v3, v5)
+  call.rt void print_i64(v6)
+  call.rt void print_nl()
+  v7 = sconst str "aaaaa"
+  v8 = call.rt ptr str_ptr(v7)
+  v9 = sconst str "aa"
+  v10 = call.rt ptr str_ptr(v9)
+  v11 = iconst i64 5
+  v12 = call.rt i64 mem_count(v8, v11, v10, v5)
+  call.rt void print_i64(v12)
+  call.rt void print_nl()
+  v13 = slot ptr $0
+  v14 = iconst i64 0
+  v15 = iconst i32 1
+  call void @put(v13, v14, v15)
+  v16 = iconst i64 1
+  v17 = iconst i32 2
+  call void @put(v13, v16, v17)
+  v18 = iconst i64 2
+  v19 = iconst i32 3
+  call void @put(v13, v18, v19)
+  v20 = iconst i64 3
+  v21 = iconst i32 4
+  call void @put(v13, v20, v21)
+  v22 = iconst i64 4
+  v23 = iconst i32 5
+  call void @put(v13, v22, v23)
+  v24 = iconst i64 5
+  v25 = iconst i32 6
+  call void @put(v13, v24, v25)
+  v26 = iconst i64 6
+  v27 = iconst i32 7
+  call void @put(v13, v26, v27)
+  v28 = iconst i64 7
+  v29 = iconst i32 8
+  call void @put(v13, v28, v29)
+  v30 = iconst i64 8
+  v31 = iconst i32 9
+  call void @put(v13, v30, v31)
+  v32 = iconst i64 3
+  v33 = iconst i64 12
+  call.rt void mem_reverse(v13, v32, v33)
+  call void @show(v13, v14)
+  call void @show(v13, v20)
+  call void @show(v13, v26)
+  call void @show(v13, v30)
+  v35 = iconst i32 0
+  call void @put(v13, v14, v35)
+  call void @put(v13, v16, v35)
+  v36 = iconst i16 1
+  v37 = iconst i16 2
+  v38 = iconst i16 3
+  v39 = addr ptr v13, v14, 2, 0
+  v40 = addr ptr v13, v16, 2, 0
+  v41 = addr ptr v13, v18, 2, 0
+  store v36, v39
+  store v37, v40
+  store v38, v41
+  v42 = iconst i64 2
+  call.rt void mem_reverse(v13, v32, v42)
+  v43 = load i16 v39
+  v44 = sext i64 v43
+  call.rt void print_i64(v44)
+  call.rt void print_nl()
+  v45 = load i16 v41
+  v46 = sext i64 v45
+  call.rt void print_i64(v46)
+  call.rt void print_nl()
+  v47 = iconst i64 0
+  ret v47
+}
