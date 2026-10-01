@@ -1,0 +1,200 @@
+// The Computer Language Benchmarks Game
+// https://salsa.debian.org/benchmarksgame-team/benchmarksgame/
+//
+// reverse-complement in Luxia 0, as the Python program does it: the input
+// read in blocks by the read of the C library (os.read in Python), every
+// sequence complemented by translate and turned by reverse in place
+// (bytes.translate and bytearray.reverse), the output written in blocks
+// by the write of the C library. When every line of a sequence is full,
+// the newlines are complemented and turned with it, as in Python; else
+// the lines are first drawn together with move and cut again at 60.
+// Python takes a length that is a multiple of 61 for full lines; here
+// every line is seen to be full, so that no other input is cut wrong.
+program ReverseComplementC;
+
+const
+  LineLength = 60;
+  ChunkSize = 65536;
+
+type
+  Bytes = array[Int64 range <>] of Byte;
+  BytesRef = ^Bytes;
+  Chunk = array[Int64 range 0..ChunkSize - 1] of Byte;
+  Table = array[Byte] of Byte;
+
+function CRead(fd: CInt; var b: Bytes; n: CSizeT): CLong;
+  external "c" name "read";
+function CWrite(fd: CInt; b: Bytes; n: CSizeT): CLong;
+  external "c" name "write";
+
+var
+  inBlock, outBlock: Chunk;
+  data: BytesRef;      // the whole input
+  size: Int64 := 0;
+  used: Int64 := 0;    // of outBlock
+  newline: String;
+
+// the input, whole, in data; twice as large each time it is full
+procedure ReadAll();
+begin
+  data := new(Bytes range 0..ChunkSize - 1);
+  while true do
+    var n := Int64(CRead(0, inBlock, ChunkSize));
+    exit when n = 0;
+    if n < 0 then
+      halt(3);
+    end;
+    if size + n > length(data^) then
+      var d := new(Bytes range 0..2 * length(data^) - 1);
+      move(data^, 0, d^, 0, size);
+      dispose(data);
+      data := d;
+    end;
+    move(inBlock, 0, data^, size, n);
+    size := size + n;
+  end;
+end ReadAll;
+
+// writes the block; what the C writes only in part is moved to the front
+procedure Flush();
+begin
+  while used > 0 do
+    var w := Int64(CWrite(1, outBlock, CSizeT(used)));
+    if w <= 0 then
+      halt(3);
+    end;
+    used := used - w;
+    if used > 0 then
+      move(outBlock, w, outBlock, 0, used);
+    end;
+  end;
+end Flush;
+
+// the n bytes of data from from, to the output
+procedure Emit(from, n: Int64);
+begin
+  var at := from;
+  var left := n;
+  while left > 0 do
+    if used = ChunkSize then
+      Flush();
+    end;
+    var k := ChunkSize - used;
+    if k > left then
+      k := left;
+    end;
+    move(data^, at, outBlock, used, k);
+    used := used + k;
+    at := at + k;
+    left := left - k;
+  end;
+end Emit;
+
+procedure EmitByte(b: Byte);
+begin
+  if used = ChunkSize then
+    Flush();
+  end;
+  outBlock[used] := b;
+  used := used + 1;
+end EmitByte;
+
+// the newline that ends the line from p, or size: a full line is seen
+// at once, any other byte by byte
+function LineEnd(p: Int64): Int64;
+begin
+  if p + LineLength < size and data[p + LineLength] = 10 and
+     occurrences(data^, p, LineLength, newline) = 0 then
+    return p + LineLength;
+  end;
+  var e := p;
+  while e < size and data[e] <> 10 do
+    e := e + 1;
+  end;
+  return e;
+end LineEnd;
+
+// the sequence whose header is from h to the newline at he, its lines
+// from b to e, all full or not
+procedure Turn(h, he, b, e: Int64; full: Boolean; table: Table);
+begin
+  var n := e - b;
+  Emit(h, he - h);
+  if full then
+    // every line full: the newline at the end comes first
+    translate(data^, b, n, table);
+    reverse(data^, b, n);
+    Emit(b, n);
+    EmitByte(10);
+  else
+    var m := b;
+    var p := b;
+    while p < e do
+      var le := LineEnd(p);
+      if le > e then
+        le := e;
+      end;
+      move(data^, p, data^, m, le - p);
+      m := m + (le - p);
+      p := le + 1;
+    end;
+    translate(data^, b, m - b, table);
+    reverse(data^, b, m - b);
+    EmitByte(10);
+    var i := b;
+    while i < m do
+      var k: Int64 := LineLength;
+      if m - i < k then
+        k := m - i;
+      end;
+      Emit(i, k);
+      EmitByte(10);
+      i := i + k;
+    end;
+  end;
+end Turn;
+
+begin
+  var table: Table;
+  for var x := low(table) to high(table) do
+    table[x] := x;
+  end;
+  var from := "ABCDGHKMNRSTVWYabcdghkmnrstvwyUu";
+  var into := "TVGHCDMKNYSABWRTVGHCDMKNYSABWRAA";
+  for var i := 1 to length(from) do
+    table[from[i]] := into[i];
+  end;
+  newline := "" & LF;
+
+  ReadAll();
+  var pos: Int64 := 0;
+  while pos < size do
+    if data[pos] = 62 then   // '>': a header
+      var he := pos;
+      while he < size and data[he] <> 10 do
+        he := he + 1;
+      end;
+      var b := he + 1;
+      if b > size then
+        b := size;
+      end;
+      var p := b;
+      var full := true;
+      while p < size and data[p] <> 62 do
+        var le := LineEnd(p);
+        if le - p <> LineLength or le = size then
+          full := false;
+        end;
+        p := le + 1;
+      end;
+      if p > size then
+        p := size;
+      end;
+      Turn(pos, he, b, p, full, table);
+      pos := p;
+    else                     // before the first header: left out
+      pos := LineEnd(pos) + 1;
+    end;
+  end;
+  Flush();
+end ReverseComplementC.
