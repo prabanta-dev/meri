@@ -2,9 +2,9 @@
 // https://salsa.debian.org/benchmarksgame-team/benchmarksgame/
 //
 // fasta in Luxia 0, writing as the Python program does: the lines go into
-// a block of bytes, the block to the write of the C library (os.write in
-// Python); the repeated sequence is copied a line at a time with move (a
-// slice in Python): the sequence is first copied into an array of bytes. The random sequences come from the linear
+// a block of bytes, the block out by writebytes (os.write in Python); the
+// repeated sequence is copied a line at a time with move (a slice in
+// Python): the sequence is first copied into an array of bytes. The random sequences come from the linear
 // congruential generator of the reference programs, 60 characters to a
 // line.
 program FastaC;
@@ -17,12 +17,8 @@ const
   BlockSize = 61 * 1024;   // whole lines, newline included
 
 type
-  Bytes = array[Int64 range <>] of Byte;
   Chunk = array[Int64 range 0..BlockSize - 1] of Byte;
   Odds = array[Int32 range 1..15] of Float64;
-
-function CWrite(fd: CInt; b: Bytes; n: CSizeT): CLong;
-  external "c" name "write";
 
 var
   last: Int64 := 42;
@@ -31,19 +27,11 @@ var
   used: Int64 := 0;
   iubOdds, sapiensOdds: Odds;
 
-// writes the block; what the C writes only in part is moved to the front
+// writes the block
 procedure Flush();
 begin
-  while used > 0 do
-    var w := Int64(CWrite(1, block, CSizeT(used)));
-    if w <= 0 then
-      halt(3);
-    end;
-    used := used - w;
-    if used > 0 then
-      move(block, w, block, 0, used);
-    end;
-  end;
+  writebytes(block, 0, used);
+  used := 0;
 end Flush;
 
 // room for n more bytes

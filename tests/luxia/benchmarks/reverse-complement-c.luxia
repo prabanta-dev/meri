@@ -2,11 +2,11 @@
 // https://salsa.debian.org/benchmarksgame-team/benchmarksgame/
 //
 // reverse-complement in Luxia 0, as the Python program does it: the input
-// read in blocks by the read of the C library (os.read in Python), the
-// sequences found by occurrences (bytes.partition), every sequence
-// complemented by translate and turned by reverse in place
-// (bytes.translate and bytearray.reverse), the output written in blocks
-// by the write of the C library.
+// read whole by readbytes (os.read in Python), the sequences found by
+// occurrences (bytes.partition), every sequence complemented by translate
+// and turned by reverse in place (bytes.translate and bytearray.reverse),
+// written by writebytes (os.write). Every byte goes through these
+// routines, none through the interpreter.
 //
 // A sequence whose lines are all of 60 bytes but the last is turned
 // whole with its newlines, as in Python. When the last line is shorter,
@@ -25,19 +25,11 @@ const
 type
   Bytes = array[Int64 range <>] of Byte;
   BytesRef = ^Bytes;
-  Chunk = array[Int64 range 0..ChunkSize - 1] of Byte;
   Table = array[Byte] of Byte;
 
-function CRead(fd: CInt; var b: Bytes; n: CSizeT): CLong;
-  external "c" name "read";
-function CWrite(fd: CInt; b: Bytes; n: CSizeT): CLong;
-  external "c" name "write";
-
 var
-  inBlock, outBlock: Chunk;
   data: BytesRef;      // the whole input
   size: Int64 := 0;
-  used: Int64 := 0;    // of outBlock
   newline, header: String;
 
 // the input, whole, in data; twice as large each time it is full
@@ -45,65 +37,18 @@ procedure ReadAll();
 begin
   data := new(Bytes range 0..ChunkSize - 1);
   while true do
-    var n := Int64(CRead(0, inBlock, ChunkSize));
-    exit when n = 0;
-    if n < 0 then
-      halt(3);
-    end;
-    if size + n > length(data^) then
+    if size = length(data^) then
       var d := new(Bytes range 0..2 * length(data^) - 1);
       move(data^, 0, d^, 0, size);
       dispose(data);
       data := d;
     end;
-    move(inBlock, 0, data^, size, n);
+    var want := length(data^) - size;
+    var n := readbytes(data^, size, want);
     size := size + n;
+    exit when n < want;   // fewer only at the end
   end;
 end ReadAll;
-
-// writes the block; what the C writes only in part is moved to the front
-procedure Flush();
-begin
-  while used > 0 do
-    var w := Int64(CWrite(1, outBlock, CSizeT(used)));
-    if w <= 0 then
-      halt(3);
-    end;
-    used := used - w;
-    if used > 0 then
-      move(outBlock, w, outBlock, 0, used);
-    end;
-  end;
-end Flush;
-
-// the n bytes of data from from, to the output
-procedure Emit(from, n: Int64);
-begin
-  var at := from;
-  var left := n;
-  while left > 0 do
-    if used = ChunkSize then
-      Flush();
-    end;
-    var k := ChunkSize - used;
-    if k > left then
-      k := left;
-    end;
-    move(data^, at, outBlock, used, k);
-    used := used + k;
-    at := at + k;
-    left := left - k;
-  end;
-end Emit;
-
-procedure EmitByte(b: Byte);
-begin
-  if used = ChunkSize then
-    Flush();
-  end;
-  outBlock[used] := b;
-  used := used + 1;
-end EmitByte;
 
 // the first byte pat from from on, or size: a window of 64 KiB at a time
 // counted, the one that has it halved down to the byte
@@ -174,23 +119,15 @@ end LastLine;
 // window of 61 with its newline at last: lines of them and the last one
 procedure Windows(s, lines, last: Int64);
 begin
-  var u := used;
   var at := s;
   for var k: Int64 := 1 to lines do
-    if u + LineLength + 1 > ChunkSize then
-      used := u;
-      Flush();
-      u := used;
-    end;
-    move(data^, at, outBlock, u, last);
-    move(data^, at + last + 1, outBlock, u + last, LineLength - last);
-    outBlock[u + LineLength] := 10;
-    u := u + LineLength + 1;
+    writebytes(data^, at, last);
+    writebytes(data^, at + last + 1, LineLength - last);
+    writebyte(10);
     at := at + LineLength + 1;
   end;
-  used := u;
-  Emit(at, last);
-  EmitByte(10);
+  writebytes(data^, at, last);
+  writebyte(10);
 end Windows;
 
 // the n bytes from b, lines of any length: drawn together and cut again
@@ -213,8 +150,8 @@ begin
     if m - i < k then
       k := m - i;
     end;
-    Emit(i, k);
-    EmitByte(10);
+    writebytes(data^, i, k);
+    writebyte(10);
     i := i + k;
   end;
 end Irregular;
@@ -224,7 +161,7 @@ end Irregular;
 procedure Turn(h, he, b, e: Int64; table: Table);
 begin
   var n := e - b;
-  Emit(h, he - h);
+  writebytes(data^, h, he - h);
   var last: Int64 := 0;
   var ended := false;   // the last line with its newline: seen before turning
   var full := n = 0;
@@ -237,12 +174,12 @@ begin
     // every line full: its newline at the end comes first
     translate(data^, b, n, table);
     reverse(data^, b, n);
-    Emit(b, n);
-    EmitByte(10);
+    writebytes(data^, b, n);
+    writebyte(10);
   elsif last > 0 then
     translate(data^, b, n, table);
     reverse(data^, b, n);
-    EmitByte(10);
+    writebyte(10);
     var lines := (n - last) div (LineLength + 1);
     if ended then
       Windows(b + 1, lines, last);
@@ -250,7 +187,7 @@ begin
       Windows(b, lines, last);
     end;
   else
-    EmitByte(10);
+    writebyte(10);
     Irregular(b, n, table);
   end;
 end Turn;
@@ -284,5 +221,4 @@ begin
     Turn(pos, he, b, e, table);
     pos := e;
   end;
-  Flush();
 end ReverseComplementC.

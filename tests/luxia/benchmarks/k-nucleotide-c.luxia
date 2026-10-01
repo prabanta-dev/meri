@@ -1,8 +1,8 @@
 // The Computer Language Benchmarks Game
 // https://salsa.debian.org/benchmarksgame-team/benchmarksgame/
 //
-// k-nucleotide in Luxia 0, using C where the Python program does: the
-// input read in blocks by the read of the C library (os.read), the lines
+// k-nucleotide in Luxia 0, using routines of the language where the
+// Python program uses C: the input read whole by readbytes, the lines
 // of THREE drawn together with move, the nucleotides made codes 0..3 by
 // translate (bytes.translate), the fragments of 1 and 2 nucleotides
 // counted by occurrences (bytes.count). The codes are moved at once into
@@ -20,7 +20,6 @@ const
 type
   Bytes = array[Int64 range <>] of Byte;
   BytesRef = ^Bytes;
-  Chunk = array[Int64 range 0..ChunkSize - 1] of Byte;
   Codes = array[Byte] of Byte;
   // a slot of the table: a count of 0 is a free one
   Entry = record
@@ -30,11 +29,7 @@ type
   Table = array[Int64 range <>] of Entry;
   TableRef = ^Table;
 
-function CRead(fd: CInt; var b: Bytes; n: CSizeT): CLong;
-  external "c" name "read";
-
 var
-  inBlock: Chunk;
   data: BytesRef;      // the whole input, then the codes of THREE
   size: Int64 := 0;
   first: Int64 := 0;   // the codes of THREE: from first,
@@ -46,19 +41,16 @@ procedure ReadAll();
 begin
   data := new(Bytes range 0..ChunkSize - 1);
   while true do
-    var n := Int64(CRead(0, inBlock, ChunkSize));
-    exit when n = 0;
-    if n < 0 then
-      halt(3);
-    end;
-    if size + n > length(data^) then
+    if size = length(data^) then
       var d := new(Bytes range 0..2 * length(data^) - 1);
       move(data^, 0, d^, 0, size);
       dispose(data);
       data := d;
     end;
-    move(inBlock, 0, data^, size, n);
+    var want := length(data^) - size;
+    var n := readbytes(data^, size, want);
     size := size + n;
+    exit when n < want;   // fewer only at the end
   end;
 end ReadAll;
 
