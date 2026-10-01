@@ -112,7 +112,8 @@ begin
       thisLine := n - produced;
     end;
     Room(thisLine + 1);
-    for var k: Int64 := 1 to thisLine do
+    // the place in the block is the counter of the loop
+    for var u := used to used + thisLine - 1 do
       var r := NextRandom();
       var idx := count;
       for var j := 1 to count do
@@ -121,9 +122,9 @@ begin
           exit;
         end;
       end;
-      block[used] := chars[Int64(idx)];
-      used := used + 1;
+      block[u] := chars[Int64(idx)];
     end;
+    used := used + thisLine;
     block[used] := 10;
     used := used + 1;
     produced := produced + thisLine;

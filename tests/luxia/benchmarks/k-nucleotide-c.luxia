@@ -5,7 +5,9 @@
 // input read in blocks by the read of the C library (os.read), the lines
 // of THREE drawn together with move, the nucleotides made codes 0..3 by
 // translate (bytes.translate), the fragments of 1 and 2 nucleotides
-// counted by occurrences (bytes.count). The longer fragments are counted
+// counted by occurrences (bytes.count). The codes are moved at once into
+// an array of their own, passed to the routines as the program of Limba
+// passes its own. The longer fragments are counted
 // in Luxia, as Python counts them in Python: a hash table written by
 // hand, with open addressing, made by new and twice as large each time
 // it is half full. A fragment of k nucleotides is a key of 2k bits; for
@@ -126,18 +128,18 @@ begin
   return t;
 end Grow;
 
-// counts every fragment of k nucleotides of THREE in a table of 64 slots
-// at first, twice as large each time it is half full
-function CountFrames(k: Int32): TableRef;
+// counts every fragment of k nucleotides of the sequence in a table of
+// 64 slots at first, twice as large each time it is half full
+function CountFrames(dna: Bytes; k: Int32): TableRef;
 begin
   var t := new(Table range 0..63);
   var mask: Bits64 := 63;
   var filled: Int64 := 0;
   var bits := (Bits64(1) shl (2 * k)) - 1;
   var acc: Bits64 := 0;
-  for var i := first to first + len - 1 do
-    acc := ((acc shl 2) or Bits64(data[i])) and bits;
-    if i - first >= Int64(k) - 1 then
+  for var i := low(dna) to high(dna) do
+    acc := ((acc shl 2) or Bits64(dna[i])) and bits;
+    if i - low(dna) >= Int64(k) - 1 then
       var p := Int64((acc * 2654435761) and mask);
       var e := t[p];
       while e.count <> 0 and e.key <> acc do
@@ -196,14 +198,15 @@ end KeyOf;
 // the times of the fragments of 1 or 2 nucleotides, by occurrences: those
 // of XY with X <> Y never overlap, so they are all counted; those of XX
 // are the X followed by anything, less the XY
-procedure Small(k: Int32; var times: array[Int64 range <>] of Int64);
+procedure Small(dna: Bytes; k: Int32;
+                var times: array[Int64 range <>] of Int64);
 begin
   var one: array[Int64 range 1..1] of Byte;
   var two: array[Int64 range 1..2] of Byte;
   var singles: array[Int64 range 0..3] of Int64;
   for var x: Int64 := 0 to 3 do
     one[1] := Byte(x);
-    singles[x] := occurrences(data^, first, len, one);
+    singles[x] := occurrences(dna, low(dna), length(dna), one);
   end;
   if k = 1 then
     for var x: Int64 := 0 to 3 do
@@ -217,12 +220,12 @@ begin
       if x <> y then
         two[1] := Byte(x);
         two[2] := Byte(y);
-        times[4 * x + y] := occurrences(data^, first, len, two);
+        times[4 * x + y] := occurrences(dna, low(dna), length(dna), two);
         others := others + times[4 * x + y];
       end;
     end;
     var followed := singles[x];
-    if len > 0 and Int64(data[first + len - 1]) = x then
+    if length(dna) > 0 and Int64(dna[high(dna)]) = x then
       followed := followed - 1;
     end;
     times[5 * x] := followed - others;
@@ -230,7 +233,7 @@ begin
 end Small;
 
 // every fragment of k nucleotides with its share, the most frequent first
-procedure Frequency(k: Int32);
+procedure Frequency(dna: Bytes; k: Int32);
 begin
   var total: Int64 := 1;
   for var i := 1 to k do
@@ -241,7 +244,7 @@ begin
   for var i := 0 to total - 1 do
     names[i] := Bits64(i);
   end;
-  Small(k, times);
+  Small(dna, k, times);
   // insertion sort: more frequent first, then alphabetical
   for var i := 1 to total - 1 do
     var name := names[i];
@@ -257,7 +260,7 @@ begin
     names[j + 1] := name;
     times[j + 1] := times1;
   end;
-  var frames := Float64(len - Int64(k) + 1);
+  var frames := Float64(length(dna) - Int64(k) + 1);
   for var i := 0 to total - 1 do
     writeln(Fragment(names[i], k), " ",
             Float64(times[i]) * 100.0 / frames:0:3);
@@ -265,9 +268,9 @@ begin
   writeln();
 end Frequency;
 
-procedure CountFragment(s: String);
+procedure CountFragment(dna: Bytes; s: String);
 begin
-  var t := CountFrames(Int32(length(s)));
+  var t := CountFrames(dna, Int32(length(s)));
   writeln(Count(KeyOf(s), t), TAB, s);
   dispose(t);
 end CountFragment;
@@ -287,11 +290,14 @@ begin
 
   ReadAll();
   FindThree();
-  Frequency(1);
-  Frequency(2);
-  CountFragment("GGT");
-  CountFragment("GGTA");
-  CountFragment("GGTATT");
-  CountFragment("GGTATTTTAATT");
-  CountFragment("GGTATTTTAATTTATAGT");
+  var dna: array[Int64 range 1..len] of Byte;
+  move(data^, first, dna, 1, len);
+  dispose(data);
+  Frequency(dna, 1);
+  Frequency(dna, 2);
+  CountFragment(dna, "GGT");
+  CountFragment(dna, "GGTA");
+  CountFragment(dna, "GGTATT");
+  CountFragment(dna, "GGTATTTTAATT");
+  CountFragment(dna, "GGTATTTTAATTTATAGT");
 end KNucleotideC.
