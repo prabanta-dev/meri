@@ -163,14 +163,23 @@
 - The routines of arrays of Luxia `translate`, `reverse` and
   `occurrences` (functions `mem_translate`, `mem_reverse`, `mem_count` of
   the runtime), in C.
-- `tests/luxia/benchmarks/`: versions of the benchmarks that use C where
-  their Python program does, for a comparison on equal terms; only Meri
-  runs them (the reference interpreter does not call C). `pidigits-gmp`:
-  GMP through external routines, as Python through ctypes. `fasta-c`:
-  lines gathered in a block of bytes, written by the C library, as
-  Python's `os.write`. `reverse-complement-c`: the input read in blocks,
-  each sequence complemented and turned whole by `translate` and
-  `reverse`. `k-nucleotide-c`: the codes made by `translate`, the
-  fragments of 1 and 2 nucleotides counted by `occurrences`.
+- `readbytes` and `writebytes` of Luxia (`io_read`, `io_write`): blocks of
+  bytes from the input of `readline` and to the output of `write`, in
+  order with them; the end of the input for good. The errors of input
+  and output: a read that fails is the trap IO where it is, never the
+  end; a write that fails is the trap IO without a position; a closed
+  output ends the run with status 141 and no message (`SIGPIPE`
+  ignored). `test_io` makes them happen.
+- `tests/luxia/benchmarks/`: versions of the benchmarks that do where
+  Python uses C what it does, for a comparison on equal terms.
+  `pidigits-gmp`: GMP through external routines, as Python through
+  ctypes; only Meri runs it (the reference interpreter does not call C).
+  The others use the routines of Luxia, so the reference interpreter
+  runs them and the net of the benchmarks compares them: `fasta-c` gathers
+  its lines in a block of bytes for `writebytes`, as Python for
+  `os.write`; `reverse-complement-c` reads the input whole by `readbytes`
+  and turns each sequence by `translate` and `reverse`; `k-nucleotide-c`
+  makes the codes by `translate` and counts the fragments of 1 and 2
+  nucleotides by `occurrences`.
 - The repository: build script (it builds Limba first, in the same
   variant, and links every program with its library), licence, style.

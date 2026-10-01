@@ -14,6 +14,7 @@
 #include "limba/fmt.h"
 #include "limba/val.h"
 
+#include <errno.h>
 #include <inttypes.h>
 #include <math.h>
 #include <stdio.h>
@@ -25,6 +26,17 @@ bool meri_rt_trap(meri_state *s, int64_t code)
     s->status = MERI_TRAP;
     s->code = code;
     return false;
+}
+
+bool meri_rt_out_error(meri_state *s, int err)
+{
+    s->nopos = true;
+    if (err == EPIPE) {
+        s->status = MERI_HALT;
+        s->code = 141;
+        return false;
+    }
+    return meri_rt_trap(s, LIMBA_TRAP_IO);
 }
 
 /* the bytes a string of n takes from the budget */
@@ -168,10 +180,12 @@ static float fv(uint64_t v)
     return f;
 }
 
-static void out(meri_state *s, const void *p, size_t n)
+/* n bytes to the output; false, the run stopped, if writing fails */
+static bool out(meri_state *s, const void *p, size_t n)
 {
-    if (n)
-        fwrite(p, 1, n, s->env->out);
+    if (n && fwrite(p, 1, n, s->env->out) != n)
+        return meri_rt_out_error(s, errno);
+    return true;
 }
 
 /* a new string as the result, or NOMEM */
@@ -203,16 +217,24 @@ static size_t utf8(uint32_t c, char *buf)
     return n;
 }
 
-/* a line of in without its LF or CR LF; *ok false at the end of the file,
-   with an empty line. NULL when memory is exhausted */
-static meri_str *line(meri_state *st, FILE *in, bool *ok)
+/* a line of the input without its LF or CR LF; *ok false at its end, for
+   good, with an empty line. NULL with st->status set when memory is
+   exhausted or reading fails (the trap IO, never the end) */
+static meri_str *line(meri_state *st, bool *ok)
 {
+    FILE *in = st->env->in;
     char *buf = NULL;
     size_t cap = 0, len;
-    ssize_t got = in ? getline(&buf, &cap, in) : -1;
+    ssize_t got = in && !st->eof ? getline(&buf, &cap, in) : -1;
     meri_str *s;
 
+    if (got < 0 && in && !st->eof && ferror(in)) {
+        free(buf);
+        meri_rt_trap(st, LIMBA_TRAP_IO);
+        return NULL;
+    }
     *ok = got >= 0;
+    st->eof = !*ok;
     len = *ok ? (size_t)got : 0;
     if (len && buf[len - 1] == '\n')
         len--;
@@ -220,6 +242,8 @@ static meri_str *line(meri_state *st, FILE *in, bool *ok)
         len--;
     s = meri_state_str(st, buf, len);
     free(buf);
+    if (!s)
+        meri_rt_trap(st, LIMBA_TRAP_NOMEM);
     return s;
 }
 
@@ -304,36 +328,36 @@ static int console(meri_state *s, uint32_t id, uint64_t *a)
     switch (id) {
     case LIMBA_RT_PRINT_I64:
         n = snprintf(buf, sizeof(buf), "%" PRId64, (int64_t)a[0]);
-        out(s, buf, (size_t)n);
-        return DONE;
+        return out(s, buf, (size_t)n) ? DONE : STOP;
+
     case LIMBA_RT_PRINT_U64:
         n = snprintf(buf, sizeof(buf), "%" PRIu64, a[0]);
-        out(s, buf, (size_t)n);
-        return DONE;
+        return out(s, buf, (size_t)n) ? DONE : STOP;
+
     case LIMBA_RT_PRINT_F64:
-        out(s, buf, limba_fmt_f64(buf, dv(a[0])));
-        return DONE;
+        return out(s, buf, limba_fmt_f64(buf, dv(a[0]))) ? DONE : STOP;
+
     case LIMBA_RT_PRINT_F32:
-        out(s, buf, limba_fmt_f32(buf, fv(a[0])));
-        return DONE;
+        return out(s, buf, limba_fmt_f32(buf, fv(a[0]))) ? DONE : STOP;
+
     case LIMBA_RT_PRINT_STR: {
         const meri_str *x = meri_str_of(a[0]);
-        out(s, x->data, x->len);
-        return DONE;
+        return out(s, x->data, x->len) ? DONE : STOP;
     }
     case LIMBA_RT_PRINT_NL:
-        out(s, "\n", 1);
-        return DONE;
+        return out(s, "\n", 1) ? DONE : STOP;
+
     case LIMBA_RT_PRINT_BOOL:
-        out(s, a[0] & 1 ? "true" : "false", a[0] & 1 ? 4 : 5);
-        return DONE;
+        return out(s, a[0] & 1 ? "true" : "false", a[0] & 1 ? 4 : 5) ? DONE
+                                                                     : STOP;
+
     case LIMBA_RT_PRINT_CHAR:
-        out(s, buf, utf8((uint32_t)a[0], buf));
-        return DONE;
+        return out(s, buf, utf8((uint32_t)a[0], buf)) ? DONE : STOP;
+
     case LIMBA_RT_PRINT_BYTE:
         buf[0] = (char)a[0];
-        out(s, buf, 1);
-        return DONE;
+        return out(s, buf, 1) ? DONE : STOP;
+
     case LIMBA_RT_PRINT_STR_W: { /* right-aligned, in code points */
         const meri_str *x = meri_str_of(a[0]);
         int64_t width = (int32_t)a[1], chars = 0;
@@ -341,15 +365,32 @@ static int console(meri_state *s, uint32_t id, uint64_t *a)
         for (i = 0; i < x->len; i++)
             chars += ((unsigned char)x->data[i] & 0xc0) != 0x80;
         for (; width > chars; width--)
-            out(s, " ", 1);
-        out(s, x->data, x->len);
+            if (!out(s, " ", 1))
+                return STOP;
+        return out(s, x->data, x->len) ? DONE : STOP;
+    }
+    case LIMBA_RT_IO_READ: { /* (a, n) -> i64: fewer than n only at the end */
+        uint64_t n = a[1], got = 0;
+        FILE *in = s->env->in;
+        if (n && in && !s->eof) {
+            got = fread((void *)(uintptr_t)MERI_ADDR(a[0]), 1, (size_t)n, in);
+            if (got < n && ferror(in))
+                return meri_rt_trap(s, LIMBA_TRAP_IO) ? DONE : STOP;
+        }
+        if (n && got < n)
+            s->eof = true;
+        a[0] = got;
         return DONE;
     }
+    case LIMBA_RT_IO_WRITE: /* (a, n): n = 0 reads nothing */
+        return out(s, (const void *)(uintptr_t)MERI_ADDR(a[0]), (size_t)a[1])
+                   ? DONE
+                   : STOP;
     case LIMBA_RT_READ_LINE: { /* (p) -> i1: the line at p, "" at the end */
         bool ok;
-        meri_str *x = line(s, s->env->in, &ok);
+        meri_str *x = line(s, &ok);
         if (!x)
-            return nomem(s);
+            return STOP;
         {
             /* as store str: the line's reference goes to memory, the old
                value is released */

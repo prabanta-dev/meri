@@ -12,6 +12,7 @@
 #include "vm/vm.h"
 
 #include <stdbool.h>
+#include <stdio.h>
 #include <stdint.h>
 
 typedef struct {
@@ -27,6 +28,12 @@ typedef struct {
     /* the memory of the program (blocks of mem_alloc, strings, globals,
        the slots of the calls alive) against its budget: past it, NOMEM */
     uint64_t used, budget;
+    /* the end of the input was seen: from then on read_line is false and
+       io_read 0, whatever comes after (progetto_ir.md § 11g) */
+    bool eof;
+    /* the run stopped where no position is told: an error of the output,
+       found at a later write or at the flush */
+    bool nopos;
 } meri_state;
 
 /* n bytes more of the program's memory; false, and nothing counted, if
@@ -64,5 +71,9 @@ bool meri_rt_call(meri_state *s, uint32_t id, uint64_t *a);
 
 /* stop the run with the trap code: always false */
 bool meri_rt_trap(meri_state *s, int64_t code);
+/* stop the run for an error of the output, errno err: a closed output
+   (EPIPE) ends it with status 141 and no message, any other is the trap
+   IO without a position (§ 11g): always false */
+bool meri_rt_out_error(meri_state *s, int err);
 
 #endif

@@ -16,6 +16,7 @@
 #include "limba/val.h"
 #include "third_party/mini-gmp/mini-gmp.h"
 
+#include <errno.h>
 #include <math.h>
 #include <setjmp.h>
 #include <stddef.h>
@@ -479,7 +480,10 @@ int meri_big_call(meri_state *s, uint32_t id, uint64_t *a)
             res = trap(s, LIMBA_TRAP_NOMEM);
             break;
         }
-        fputs(t, s->env->out);
+        if (fputs(t, s->env->out) == EOF) {
+            meri_rt_out_error(s, errno);
+            res = 0;
+        }
         free(t);
         break;
     }

@@ -20,6 +20,7 @@
 #include "vm/rt.h"
 #include "vm/vm.h"
 
+#include <errno.h>
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -1548,7 +1549,8 @@ op_PUTC: {
     unsigned nb8, i3;
     /* UTF-8, as the runtime writes it (rt.c) */
     if (c < 0x80) {
-        fputc((int)c, s->env->out);
+        if (fputc((int)c, s->env->out) == EOF)
+            goto out_error;
         NEXT;
     }
     nb8 = c < 0x800 ? 2 : c < 0x10000 ? 3 : 4;
@@ -1557,12 +1559,20 @@ op_PUTC: {
         c >>= 6;
     }
     b8[0] = (char)((0xf00 >> nb8) | c);
-    fwrite(b8, 1, nb8, s->env->out);
+    if (fwrite(b8, 1, nb8, s->env->out) != nb8)
+        goto out_error;
     NEXT;
 }
 op_PUTB:
-    fputc((int)(uint8_t)RA, s->env->out);
+    if (fputc((int)(uint8_t)RA, s->env->out) == EOF)
+        goto out_error;
     NEXT;
+out_error: /* no position: the write that finds it may be a later one */
+    ip = pc - 1;
+    meri_rt_out_error(s, errno);
+    r->status = s->status;
+    r->code = s->code;
+    goto stop;
 op_UNREACH:
     ip = pc - 1;
     r->status = MERI_UNREACHABLE;
@@ -1572,7 +1582,7 @@ trap:
     r->status = MERI_TRAP;
     r->code = code;
 stop:
-    r->pos = fn->pos ? fn->pos[ip - fn->code] : 0;
+    r->pos = fn->pos && !s->nopos ? fn->pos[ip - fn->code] : 0;
 #undef NEXT
 #undef RA
 #undef RB

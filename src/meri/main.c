@@ -10,6 +10,7 @@
 #include "vm/ffi.h"
 #include "vm/vm.h"
 
+#include <signal.h>
 #include <errno.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -239,15 +240,22 @@ int main(int argc, char **argv)
         return 0;
     }
 
+    /* a closed output is EPIPE at the write, not a signal (§ 11g) */
+    signal(SIGPIPE, SIG_IGN);
     env = (meri_env){argc - i, argv + i, stdin, stdout, max_memory};
     meri_run(p, "main", &env, &r);
-    status = fflush(stdout) || ferror(stdout) ? -1 : 0;
-    if (status) {
-        fprintf(stderr, "meri: error writing the standard output\n");
-        status = 1;
-    } else {
-        status = report(m, &r);
+    errno = 0;
+    if ((fflush(stdout) || ferror(stdout)) &&
+        (r.status == MERI_OK || (r.status == MERI_HALT && r.code != 141))) {
+        /* an error of the output found at the flush: the trap IO without
+           a position, or the closed output, 141 and no message. Not after
+           a trap, nor after 141 (the run already ended on a closed
+           output: halt cannot give it) */
+        int err = errno;
+        r = (meri_result){.status = err == EPIPE ? MERI_HALT : MERI_TRAP,
+                          .code = err == EPIPE ? 141 : LIMBA_TRAP_IO};
     }
+    status = report(m, &r);
     meri_program_free(p);
     limba_module_free(m);
     return status;
