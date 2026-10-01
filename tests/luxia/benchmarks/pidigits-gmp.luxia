@@ -1,0 +1,103 @@
+// The Computer Language Benchmarks Game
+// https://salsa.debian.org/benchmarksgame-team/benchmarksgame/
+//
+// pidigits in Luxia 0 with GMP: the spigot algorithm of the reference
+// programs (Gibbons, "Unbounded spigot algorithms for the digits of pi"),
+// its arithmetic the mpz functions of GMP called as external routines
+// (§ 8.5), as the Python program calls them through ctypes. The integers
+// live in memory of C: an mpz_t is 16 bytes, allocated with malloc.
+program PiDigitsGmp;
+
+type
+  Mpz = new CPointer;
+
+function Alloc(n: CSizeT): Mpz;
+  external "c" name "malloc";
+procedure InitSetUi(r: Mpz; v: CULong);
+  external "gmp" name "__gmpz_init_set_ui";
+procedure MulUi(r: Mpz; a: Mpz; b: CULong);
+  external "gmp" name "__gmpz_mul_ui";
+procedure Add(r: Mpz; a: Mpz; b: Mpz);
+  external "gmp" name "__gmpz_add";
+procedure TdivQ(q: Mpz; n: Mpz; d: Mpz);
+  external "gmp" name "__gmpz_tdiv_q";
+function GetUi(a: Mpz): CULong;
+  external "gmp" name "__gmpz_get_ui";
+procedure AddmulUi(r: Mpz; a: Mpz; b: CULong);
+  external "gmp" name "__gmpz_addmul_ui";
+procedure SubmulUi(r: Mpz; a: Mpz; b: CULong);
+  external "gmp" name "__gmpz_submul_ui";
+function Cmp(a: Mpz; b: Mpz): CInt;
+  external "gmp" name "__gmpz_cmp";
+
+var
+  tmp1, tmp2, acc, den, num: Mpz;
+
+function NewMpz(v: CULong): Mpz;
+begin
+  var r := Alloc(16);
+  InitSetUi(r, v);
+  return r;
+end NewMpz;
+
+function ExtractDigit(nth: CULong): Int64;
+begin
+  // between tmp1 and tmp2, so that GMP needs no buffers of its own
+  MulUi(tmp1, num, nth);
+  Add(tmp2, tmp1, acc);
+  TdivQ(tmp1, tmp2, den);
+  return Int64(GetUi(tmp1));
+end ExtractDigit;
+
+procedure EliminateDigit(d: Int64);
+begin
+  SubmulUi(acc, den, CULong(d));
+  MulUi(acc, acc, 10);
+  MulUi(num, num, 10);
+end EliminateDigit;
+
+procedure NextTerm(k: Int64);
+begin
+  var k2 := CULong(2 * k + 1);
+  AddmulUi(acc, num, 2);
+  MulUi(acc, acc, k2);
+  MulUi(den, den, k2);
+  MulUi(num, num, CULong(k));
+end NextTerm;
+
+begin
+  var n: Int32 := 27;
+  if argcount() > 0 then
+    if not val(arg(1), n) then
+      halt(2);
+    end;
+  end;
+
+  tmp1 := NewMpz(0);
+  tmp2 := NewMpz(0);
+  acc := NewMpz(0);
+  den := NewMpz(1);
+  num := NewMpz(1);
+
+  var i: Int32 := 0;
+  var k: Int64 := 0;
+  while i < n do
+    k := k + 1;
+    NextTerm(k);
+    continue when Cmp(num, acc) > 0;
+    var d := ExtractDigit(3);
+    continue when d <> ExtractDigit(4);
+    write(d);
+    i := i + 1;
+    if i mod 10 = 0 then
+      writeln(TAB, ":", i);
+    end;
+    EliminateDigit(d);
+  end;
+  if i mod 10 <> 0 then
+    for var j := 1 to 10 - i mod 10 do
+      write(" ");
+    end;
+    writeln(TAB, ":", i);
+  end;
+end PiDigitsGmp.
