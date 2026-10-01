@@ -2,14 +2,20 @@
 // https://salsa.debian.org/benchmarksgame-team/benchmarksgame/
 //
 // reverse-complement in Luxia 0, as the Python program does it: the input
-// read in blocks by the read of the C library (os.read in Python), every
-// sequence complemented by translate and turned by reverse in place
+// read in blocks by the read of the C library (os.read in Python), the
+// sequences found by occurrences (bytes.partition), every sequence
+// complemented by translate and turned by reverse in place
 // (bytes.translate and bytearray.reverse), the output written in blocks
-// by the write of the C library. When every line of a sequence is full,
-// the newlines are complemented and turned with it, as in Python; else
-// the lines are first drawn together with move and cut again at 60.
-// Python takes a length that is a multiple of 61 for full lines; here
-// every line is seen to be full, so that no other input is cut wrong.
+// by the write of the C library.
+//
+// A sequence whose lines are all of 60 bytes but the last is turned
+// whole with its newlines, as in Python. When the last line is shorter,
+// each line of the output is a window of 61 bytes of the turned sequence
+// with its newline out of place: two moves a line (two slices a line in
+// Python). Python takes a length that is a multiple of 61 for full lines;
+// here the newlines are seen where they must be, one byte a line, and
+// counted, so that no other input is cut wrong: any other is drawn
+// together line by line and cut again at 60.
 program ReverseComplementC;
 
 const
@@ -32,7 +38,7 @@ var
   data: BytesRef;      // the whole input
   size: Int64 := 0;
   used: Int64 := 0;    // of outBlock
-  newline: String;
+  newline, header: String;
 
 // the input, whole, in data; twice as large each time it is full
 procedure ReadAll();
@@ -99,58 +105,153 @@ begin
   used := used + 1;
 end EmitByte;
 
-// the newline that ends the line from p, or size: a full line is seen
-// at once, any other byte by byte
-function LineEnd(p: Int64): Int64;
+// the first byte pat from from on, or size: a window of 64 KiB at a time
+// counted, the one that has it halved down to the byte
+function Find(from: Int64; pat: String): Int64;
 begin
-  if p + LineLength < size and data[p + LineLength] = 10 and
-     occurrences(data^, p, LineLength, newline) = 0 then
-    return p + LineLength;
+  var lo := from;
+  while lo < size do
+    var n: Int64 := ChunkSize;
+    if size - lo < n then
+      n := size - lo;
+    end;
+    if occurrences(data^, lo, n, pat) > 0 then
+      while n > 1 do
+        var h := n div 2;
+        if occurrences(data^, lo, h, pat) > 0 then
+          n := h;
+        else
+          lo := lo + h;
+          n := n - h;
+        end;
+      end;
+      return lo;
+    end;
+    lo := lo + n;
   end;
-  var e := p;
-  while e < size and data[e] <> 10 do
-    e := e + 1;
+  return size;
+end Find;
+
+// the end of the line from p, before e: its newline, or e
+function LineEnd(p, e: Int64): Int64;
+begin
+  var q := p;
+  while q < e and data[q] <> 10 do
+    q := q + 1;
   end;
-  return e;
+  return q;
 end LineEnd;
 
-// the sequence whose header is from h to the newline at he, its lines
-// from b to e, all full or not
-procedure Turn(h, he, b, e: Int64; full: Boolean; table: Table);
+// the length of the last line of the n bytes from b, if every other one
+// has 60 bytes and its newline and the last one 1 to 60 (with or without
+// its newline): the newlines where they must be and no other; else 0
+function LastLine(b, n: Int64): Int64;
+begin
+  var lines := occurrences(data^, b, n, newline);
+  var ended := data[b + n - 1] = 10;
+  if ended then
+    lines := lines - 1;
+  end;
+  var last := n - (LineLength + 1) * lines;
+  if ended then
+    last := last - 1;
+  end;
+  if last < 1 or last > LineLength then
+    return 0;
+  end;
+  var d := data;
+  var q := b + LineLength;
+  for var j: Int64 := 1 to lines do
+    if d[q] <> 10 then
+      return 0;
+    end;
+    q := q + LineLength + 1;
+  end;
+  return last;
+end LastLine;
+
+// the turned sequence from s to the output, a line of 60 bytes from each
+// window of 61 with its newline at last: lines of them and the last one
+procedure Windows(s, lines, last: Int64);
+begin
+  var u := used;
+  var at := s;
+  for var k: Int64 := 1 to lines do
+    if u + LineLength + 1 > ChunkSize then
+      used := u;
+      Flush();
+      u := used;
+    end;
+    move(data^, at, outBlock, u, last);
+    move(data^, at + last + 1, outBlock, u + last, LineLength - last);
+    outBlock[u + LineLength] := 10;
+    u := u + LineLength + 1;
+    at := at + LineLength + 1;
+  end;
+  used := u;
+  Emit(at, last);
+  EmitByte(10);
+end Windows;
+
+// the n bytes from b, lines of any length: drawn together and cut again
+procedure Irregular(b, n: Int64; table: Table);
+begin
+  var e := b + n;
+  var m := b;
+  var p := b;
+  while p < e do
+    var le := LineEnd(p, e);
+    move(data^, p, data^, m, le - p);
+    m := m + (le - p);
+    p := le + 1;
+  end;
+  translate(data^, b, m - b, table);
+  reverse(data^, b, m - b);
+  var i := b;
+  while i < m do
+    var k: Int64 := LineLength;
+    if m - i < k then
+      k := m - i;
+    end;
+    Emit(i, k);
+    EmitByte(10);
+    i := i + k;
+  end;
+end Irregular;
+
+// the sequence whose header is from h to he (its newline left out), its
+// lines from b to e
+procedure Turn(h, he, b, e: Int64; table: Table);
 begin
   var n := e - b;
   Emit(h, he - h);
+  var last: Int64 := 0;
+  var ended := false;   // the last line with its newline: seen before turning
+  var full := n = 0;
+  if n > 0 then
+    last := LastLine(b, n);
+    ended := data[e - 1] = 10;
+    full := last = LineLength and ended;
+  end;
   if full then
-    // every line full: the newline at the end comes first
+    // every line full: its newline at the end comes first
     translate(data^, b, n, table);
     reverse(data^, b, n);
     Emit(b, n);
     EmitByte(10);
-  else
-    var m := b;
-    var p := b;
-    while p < e do
-      var le := LineEnd(p);
-      if le > e then
-        le := e;
-      end;
-      move(data^, p, data^, m, le - p);
-      m := m + (le - p);
-      p := le + 1;
-    end;
-    translate(data^, b, m - b, table);
-    reverse(data^, b, m - b);
+  elsif last > 0 then
+    translate(data^, b, n, table);
+    reverse(data^, b, n);
     EmitByte(10);
-    var i := b;
-    while i < m do
-      var k: Int64 := LineLength;
-      if m - i < k then
-        k := m - i;
-      end;
-      Emit(i, k);
-      EmitByte(10);
-      i := i + k;
+    var lines := (n - last) div (LineLength + 1);
+    if ended then
+      Windows(b + 1, lines, last);
+    else
+      Windows(b, lines, last);
     end;
+  else
+    EmitByte(10);
+    Irregular(b, n, table);
   end;
 end Turn;
 
@@ -165,36 +266,23 @@ begin
     table[from[i]] := into[i];
   end;
   newline := "" & LF;
+  header := ">";
 
   ReadAll();
-  var pos: Int64 := 0;
+  // what comes before the first header is left out, as Python does
+  var pos := Find(0, header);
   while pos < size do
-    if data[pos] = 62 then   // '>': a header
-      var he := pos;
-      while he < size and data[he] <> 10 do
-        he := he + 1;
-      end;
-      var b := he + 1;
-      if b > size then
-        b := size;
-      end;
-      var p := b;
-      var full := true;
-      while p < size and data[p] <> 62 do
-        var le := LineEnd(p);
-        if le - p <> LineLength or le = size then
-          full := false;
-        end;
-        p := le + 1;
-      end;
-      if p > size then
-        p := size;
-      end;
-      Turn(pos, he, b, p, full, table);
-      pos := p;
-    else                     // before the first header: left out
-      pos := LineEnd(pos) + 1;
+    var e := Find(pos + 1, header);
+    var he := Find(pos, newline);
+    if he > e then
+      he := e;
     end;
+    var b := he + 1;
+    if b > e then
+      b := e;
+    end;
+    Turn(pos, he, b, e, table);
+    pos := e;
   end;
   Flush();
 end ReverseComplementC.
