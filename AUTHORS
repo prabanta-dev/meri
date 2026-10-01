@@ -1,0 +1,53 @@
+Meri is designed and written by
+
+    Maurizio "camauri" Cammalleri
+    https://github.com/camauri
+
+Copyright (C) 2026 Maurizio Cammalleri. Meri is free software under the
+GNU General Public License, version 3 or later: see LICENSE.
+
+
+About the author
+----------------
+
+Maurizio Cammalleri is a system architect based in Italy. In more than
+thirty years of work, Maurizio has designed embedded systems, industrial
+control software and high-performance web platforms, and has led technical
+teams as CTO and CIO.
+
+Meri is part of Prabanta (https://github.com/prabanta-dev), a family of
+tools written in C with no dependencies beyond the C library:
+
+  - Limba, the front end of the compiler for Luxia, an extended Pascal
+    with the rigour of Ada (https://github.com/prabanta-dev/limba);
+  - Meri, the register-based virtual machine that runs it, with a
+    bytecode compiler, ahead-of-time and just-in-time compilation;
+  - Janas, tools for artificial intelligence, whose aim is to lower the
+    hardware that private AI needs (https://github.com/prabanta-dev/janas);
+  - Napa, for web infrastructure, and Prama, for high-performance
+    computing, both still being defined.
+
+Other public projects by the same author, in Free Pascal:
+
+  - SedaiBasic2, a BASIC interpreter with a virtual machine, whose ideas
+    Meri takes, not its code (https://github.com/camauri/SedaiBasic2);
+  - Sedai Audio Foundation, an audio synthesis library with five engines:
+    subtractive, FM, wavetable, additive and SID
+    (https://github.com/camauri/SedaiAudio).
+
+Writing: https://cammalleri.substack.com/
+
+
+Others
+------
+
+The integers of any size (BigInt) are computed by mini-gmp, from GNU MP
+6.3.0, contributed to the GNU project by Niels Möller, with additional
+functionalities and improvements by Marco Bodrato; Copyright (C) Free
+Software Foundation, Inc., under the GNU LGPL version 3 or the GNU GPL
+version 2, or later. It is in src/third_party/mini-gmp/, with its
+licences and PROVENANCE: where it comes from, how it was verified and the
+one change made to it.
+
+Meri is checked against the reference interpreter of Limba: every program
+must print in Meri what it prints there.
