@@ -2648,13 +2648,17 @@ static void layout_slots(L *l, meri_fn *fn)
     fn->slot_size = (off + 15) & ~(uint64_t)15;
     fn->slot_align = align;
     fn->rel_slots = calloc((size_t)f->nslots + 1, sizeof(uint32_t));
-    if (!fn->rel_slots) {
+    fn->rel_types = calloc((size_t)f->nslots + 1, sizeof(limba_id));
+    if (!fn->rel_slots || !fn->rel_types) {
         fail(l, "out of memory");
         return;
     }
     for (s = 0; s < f->nslots; s++)
-        if (f->slots[s].type != LIMBA_NONE && l->p->holds_str[f->slots[s].type])
-            fn->rel_slots[fn->nrel_slots++] = s;
+        if (f->slots[s].type != LIMBA_NONE &&
+            l->p->holds_str[f->slots[s].type]) {
+            fn->rel_slots[fn->nrel_slots] = s;
+            fn->rel_types[fn->nrel_slots++] = f->slots[s].type;
+        }
 }
 
 /* the order of the blocks in the code: the reverse postorder of a depth
@@ -2976,10 +2980,29 @@ static void function(meri_program *p, uint32_t fid, meri_diag *d)
         p->failed = true;
 }
 
-meri_program *meri_compile(const limba_module *m, meri_diag *d)
+/* holds_str for the types added since it was last known; false when
+   memory is exhausted */
+static bool know_types(meri_program *p)
+{
+    const limba_module *m = p->m;
+    uint8_t *h;
+    uint32_t i;
+
+    if (m->ntypes == p->ntypes)
+        return true;
+    h = realloc(p->holds_str, (size_t)m->ntypes + 1);
+    if (!h)
+        return false;
+    p->holds_str = h;
+    for (i = p->ntypes; i < m->ntypes; i++)
+        p->holds_str[i] = limba_type_holds_str(m, i);
+    p->ntypes = m->ntypes;
+    return true;
+}
+
+meri_program *meri_compile_begin(const limba_module *m, meri_diag *d)
 {
     meri_program *p = calloc(1, sizeof(*p));
-    uint32_t i;
 
     d->msg[0] = 0;
     if (!p || m->nfuncs > 0x10000 || m->nglobals > 0x10000) {
@@ -2996,17 +3019,75 @@ meri_program *meri_compile(const limba_module *m, meri_diag *d)
         free(p);
         return NULL;
     }
-    p->holds_str = calloc((size_t)m->ntypes + 1, 1);
-    if (!p->holds_str) {
+    if (!know_types(p)) {
         snprintf(d->msg, sizeof(d->msg), "out of memory");
         meri_program_free(p);
         return NULL;
     }
-    for (i = 0; i < m->ntypes; i++)
-        p->holds_str[i] = limba_type_holds_str(m, i);
+    return p;
+}
+
+bool meri_compile_func(meri_program *p, limba_id fid, meri_diag *d)
+{
+    d->msg[0] = 0;
+    if (p->failed || p->ended || fid >= p->nfns || p->fns[fid].code) {
+        snprintf(d->msg, sizeof(d->msg), "function %" PRIu32 " %s", fid,
+                 p->failed        ? "after a failure"
+                 : p->ended       ? "after the end"
+                 : fid >= p->nfns ? "is not declared"
+                                  : "given twice");
+        p->failed = true;
+        return false;
+    }
+    if (!know_types(p)) {
+        snprintf(d->msg, sizeof(d->msg), "out of memory");
+        p->failed = true;
+        return false;
+    }
+    function(p, fid, d);
+    return !p->failed;
+}
+
+bool meri_compile_end(meri_program *p, meri_diag *d)
+{
+    uint32_t i;
+
+    d->msg[0] = 0;
+    if (p->failed || p->ended) {
+        snprintf(d->msg, sizeof(d->msg), "the end %s",
+                 p->failed ? "after a failure" : "given twice");
+        p->failed = true;
+        return false;
+    }
+    if (!know_types(p)) {
+        snprintf(d->msg, sizeof(d->msg), "out of memory");
+        p->failed = true;
+        return false;
+    }
+    /* those never given: declared only (their bodies, if any, gone) */
+    for (i = 0; i < p->nfns && !p->failed; i++)
+        if (!p->fns[i].code && !p->m->funcs[i].nblocks)
+            function(p, i, d);
+        else if (!p->fns[i].code) {
+            snprintf(d->msg, sizeof(d->msg),
+                     "function %" PRIu32 " has a body never given", i);
+            p->failed = true;
+        }
+    p->ended = !p->failed;
+    return p->ended;
+}
+
+meri_program *meri_compile(const limba_module *m, meri_diag *d)
+{
+    meri_program *p = meri_compile_begin(m, d);
+    uint32_t i;
+
+    if (!p)
+        return NULL;
     for (i = 0; i < m->nfuncs && !p->failed; i++)
         function(p, i, d);
-    if (p->failed) {
+    /* the message of a failure is the function's, not the end's */
+    if (p->failed || !meri_compile_end(p, d)) {
         meri_program_free(p);
         return NULL;
     }
@@ -3025,6 +3106,7 @@ void meri_program_free(meri_program *p)
         free(p->fns[i].k);
         free(p->fns[i].slot_off);
         free(p->fns[i].rel_slots);
+        free(p->fns[i].rel_types);
     }
     for (i = 0; i < p->nstrs; i++)
         free(p->strs[i]);

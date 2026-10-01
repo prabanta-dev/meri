@@ -161,7 +161,7 @@ static void one(const char *path)
     }
     {
         meri_diag ld;
-        bool linked = meri_ffi_link(p, NULL, 0, &ld);
+        bool linked = meri_link(p, NULL, 0, &ld);
         if (!linked || e.link[0]) {
             CHECK(!linked && e.link[0] && strstr(ld.msg, e.link),
                   "%s: linking: \"%s\", expected a failure with \"%s\"", path,

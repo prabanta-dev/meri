@@ -168,8 +168,8 @@ static bool fail(meri_diag *d, const char *fmt, ...)
     return false;
 }
 
-bool meri_ffi_link(meri_program *p, const char *const *dirs, size_t ndirs,
-                   meri_diag *d)
+bool meri_link(meri_program *p, const char *const *dirs, size_t ndirs,
+               meri_diag *d)
 {
     const limba_module *m = p->m;
     const char *mine = meri_ffi_target(), *why = "";

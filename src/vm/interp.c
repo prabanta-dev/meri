@@ -985,12 +985,11 @@ op_STS: {
     NEXT;
 }
 op_RELSLOTS: {
-    const limba_func *lf = &p->m->funcs[fn - p->fns];
     uint32_t i;
     for (i = 0; i < fn->nrel_slots; i++) {
         uint32_t k2 = fn->rel_slots[i];
         meri_state_rc(s, (uint64_t)(uintptr_t)(slots + fn->slot_off[k2]),
-                      lf->slots[k2].type, 1, -1);
+                      fn->rel_types[i], 1, -1);
     }
     NEXT;
 }
@@ -1609,7 +1608,7 @@ void meri_run(const meri_program *p, const char *entry, const meri_env *env,
                                                          : SLOT_MAX);
 
     memset(r, 0, sizeof(*r));
-    if (fid == LIMBA_NONE || p->fns[fid].nparams != 0) {
+    if (!p->ended || fid == LIMBA_NONE || p->fns[fid].nparams != 0) {
         r->status = MERI_BADENTRY;
         return;
     }

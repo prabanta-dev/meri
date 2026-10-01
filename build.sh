@@ -49,9 +49,9 @@ Actions
 Output
   Objects and the static library go to lib/<cpu>-<os>-<variant>/,
   programs to bin/<cpu>-<os>/, with a -<variant> suffix for every variant
-  but release. Each src/<tool>/main.c becomes the program <tool> (meri,
-  prabanta), with the other .c files of its directory; every other .c
-  under src/ goes into libmeri.a. Each tests/*.c and tools/*.c becomes a
+  but release. Each src/<tool>/main.c becomes the program <tool> (meri),
+  with the other .c files of its directory; every other .c under src/
+  goes into libmeri.a, whose interface is include/meri/meri.h. Each tests/*.c and tools/*.c becomes a
   program too. Every program is linked with libmeri.a and liblimba.a, and
   knows where Limba is (MERI_LIMBA_DIR): test_vm runs the cases of its
   reference interpreter too, LIMBA_DIR/tests/eval.

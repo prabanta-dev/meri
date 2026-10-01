@@ -61,6 +61,15 @@ libffi.
 - Every program must print in Meri what it prints in the reference
   interpreter of Limba, on every engine.
 
+## As a library
+
+`include/meri/meri.h` is Meri for another program: a module of the IR
+compiled whole, or a function at a time as the front end of Limba gives
+it (`limba/limba_luxia.h`), each body read once, while it is still there;
+the C libraries linked; the run; its end flushed and reported as `meri`
+reports it. `tests/test_api.c` uses that header only, fed by the front
+end of Limba.
+
 ## Building
 
 Meri needs [Limba](https://github.com/prabanta-dev/limba) next to it

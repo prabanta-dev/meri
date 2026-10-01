@@ -181,5 +181,13 @@
   and turns each sequence by `translate` and `reverse`; `k-nucleotide-c`
   makes the codes by `translate` and counts the fragments of 1 and 2
   nucleotides by `occurrences`.
+- `include/meri/meri.h`, Meri as a library: the compilation of a module
+  whole or a function at a time, as the front end of Limba gives it
+  (`meri_compile_begin`, `meri_compile_func`, `meri_compile_end`), its
+  body never read again; `meri_link`; the end of a run flushed and
+  reported as `meri` does (`meri_flush`, `meri_report`). The types of the
+  slots released at a return are kept in the bytecode, no longer read
+  from the body of the IR. `test_api` compiles Luxia through Limba both
+  ways and expects the same run.
 - The repository: build script (it builds Limba first, in the same
   variant, and links every program with its library), licence, style.

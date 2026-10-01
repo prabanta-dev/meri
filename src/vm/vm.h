@@ -1,8 +1,8 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later
    Copyright (C) 2026 Maurizio Cammalleri */
 /*
- * vm.h - the virtual machine of Meri: a module of the IR compiled to
- * bytecode (meri_compile), and its execution (meri_run).
+ * vm.h - the virtual machine of Meri inside: the bytecode of a module
+ * (meri_compile, meri/meri.h), as the interpreter runs it (meri_run).
  *
  * The strings count their references (progetto_ir.md § 11c); a block of
  * mem_alloc goes back to malloc when freed, its pointers tagged with its
@@ -13,6 +13,7 @@
 #define MERI_VM_H
 
 #include "limba/ir.h"
+#include "meri/meri.h"
 #include "vm/str.h"
 
 #include <stdbool.h>
@@ -34,11 +35,12 @@ typedef struct {
     uint64_t slot_size;  /* bytes of the slot area */
     uint64_t slot_align; /* its alignment */
     uint32_t *rel_slots; /* the typed slots holding a str: released at ret */
+    limba_id *rel_types; /* the type of each: the body is gone by then */
     uint32_t nrel_slots;
     limba_id type; /* the function type in the module */
 } meri_fn;
 
-typedef struct {
+struct meri_program {
     const limba_module *m; /* kept for names, types and positions */
     meri_fn *fns;
     uint32_t nfns;
@@ -46,65 +48,15 @@ typedef struct {
     limba_id *str_ids; /* the string of the module each one holds */
     uint32_t nstrs, capstrs;
     uint8_t *holds_str; /* of each type of the module: has a str in it */
+    uint32_t ntypes;    /* the types holds_str knows */
     bool failed;        /* while compiling */
-    /* the externs, resolved by meri_ffi_link (ffi.h); NULL before */
+    bool ended;         /* every function compiled: it may run */
+    /* the externs, resolved by meri_link; NULL before */
     struct meri_ext *exts;
     uint32_t nexts;
     void **libs; /* the libraries opened */
     limba_id *libnames;
     uint32_t nlibs;
-} meri_program;
-
-/* a function the compiler cannot translate: which one and why */
-typedef struct {
-    char msg[256];
-} meri_diag;
-
-/* compile a verified module; NULL and d filled if a function exceeds a
-   limit of the first cut */
-meri_program *meri_compile(const limba_module *m, meri_diag *d);
-void meri_program_free(meri_program *p);
-
-/* print the bytecode of every function */
-void meri_disasm(const meri_program *p, FILE *out);
-
-enum meri_status {
-    MERI_OK,          /* returned */
-    MERI_TRAP,        /* a run-time error: code says which (traps.def) */
-    MERI_HALT,        /* halt(code): code is the exit status */
-    MERI_UNREACHABLE, /* executed unreachable */
-    MERI_BADCALL,     /* call.ind of a value that is no such function */
-    MERI_UNSUPPORTED, /* call.ext */
-    MERI_BADENTRY,    /* no entry function, or it takes parameters */
 };
-
-typedef struct {
-    int status;   /* enum meri_status */
-    int64_t code; /* the trap or the halt code */
-    uint32_t pos; /* where it stopped: a limba_pos index, 0 if unknown */
-    uint64_t ret; /* what the entry returned, if it returned */
-    /* the strings of the run still alive when it ended (those in globals
-       and in blocks never freed, or a missed release) */
-    uint64_t live_strings;
-    uint64_t live_refs; /* the same for the numbers of BigInt (big.h) */
-} meri_result;
-
-typedef struct {
-    int argc; /* the arguments of the program, without its name */
-    char **argv;
-    FILE *in;  /* read_line */
-    FILE *out; /* everything the program writes */
-    /* the memory the program may use: blocks of mem_alloc, strings,
-       globals and the slots of the calls alive; past it, the trap NOMEM,
-       never a crash. 0 for meri_default_memory() */
-    uint64_t max_memory;
-} meri_env;
-
-/* the budget of a run by default: half of the physical memory */
-uint64_t meri_default_memory(void);
-
-/* run the function called entry (no parameters, no result used) */
-void meri_run(const meri_program *p, const char *entry, const meri_env *env,
-              meri_result *r);
 
 #endif
