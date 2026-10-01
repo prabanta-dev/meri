@@ -1,0 +1,178 @@
+// The Computer Language Benchmarks Game
+// https://salsa.debian.org/benchmarksgame-team/benchmarksgame/
+//
+// fasta in Luxia 0, writing as the Python program does: the lines go into
+// a block of bytes, the block to the write of the C library (os.write in
+// Python); the repeated sequence is copied a line at a time with move (a
+// slice in Python): the sequence is first copied into an array of bytes. The random sequences come from the linear
+// congruential generator of the reference programs, 60 characters to a
+// line.
+program FastaC;
+
+const
+  LineLength = 60;
+  Im = 139968;
+  Ia = 3877;
+  Ic = 29573;
+  BlockSize = 61 * 1024;   // whole lines, newline included
+
+type
+  Bytes = array[Int64 range <>] of Byte;
+  Chunk = array[Int64 range 0..BlockSize - 1] of Byte;
+  Odds = array[Int32 range 1..15] of Float64;
+
+function CWrite(fd: CInt; b: Bytes; n: CSizeT): CLong;
+  external "c" name "write";
+
+var
+  last: Int64 := 42;
+  block: Chunk;
+  alu2: array[Int64 range 1..574] of Byte;   // alu twice, 287 bytes each
+  used: Int64 := 0;
+  iubOdds, sapiensOdds: Odds;
+
+// writes the block; what the C writes only in part is moved to the front
+procedure Flush();
+begin
+  while used > 0 do
+    var w := Int64(CWrite(1, block, CSizeT(used)));
+    if w <= 0 then
+      halt(3);
+    end;
+    used := used - w;
+    if used > 0 then
+      move(block, w, block, 0, used);
+    end;
+  end;
+end Flush;
+
+// room for n more bytes
+procedure Room(n: Int64);
+begin
+  if used + n > BlockSize then
+    Flush();
+  end;
+end Room;
+
+procedure PutText(s: String);
+begin
+  Room(length(s));
+  for var i: Int64 := 1 to length(s) do
+    block[used] := s[i];
+    used := used + 1;
+  end;
+end PutText;
+
+function NextRandom(): Float64;
+begin
+  last := (last * Ia + Ic) mod Im;
+  return Float64(last) / Float64(Im);
+end NextRandom;
+
+procedure RepeatFasta(id, desc, s: String; n: Int64);
+begin
+  PutText(">" & id & " " & desc & LF);
+  var sn := length(s);
+  for var i: Int64 := 1 to sn do
+    alu2[i] := s[i];
+    alu2[sn + i] := s[i];
+  end;
+  var p: Int64 := 1;
+  var i: Int64 := LineLength;
+  while i <= n do
+    Room(LineLength + 1);
+    move(alu2, p, block, used, LineLength);
+    block[used + LineLength] := 10;
+    used := used + LineLength + 1;
+    p := p + LineLength;
+    if p > sn then
+      p := p - sn;
+    end;
+    i := i + LineLength;
+  end;
+  var tail := n mod LineLength;
+  if tail > 0 then
+    Room(tail + 1);
+    move(alu2, p, block, used, tail);
+    block[used + tail] := 10;
+    used := used + tail + 1;
+  end;
+end RepeatFasta;
+
+// the odds are cumulative: the first code whose odds exceed the random
+// number is the one written
+procedure RandomFasta(id, desc, chars: String; odds: Odds; count: Int32;
+                      n: Int64);
+begin
+  PutText(">" & id & " " & desc & LF);
+  var produced: Int64 := 0;
+  while produced < n do
+    var thisLine: Int64 := LineLength;
+    if n - produced < LineLength then
+      thisLine := n - produced;
+    end;
+    Room(thisLine + 1);
+    for var k: Int64 := 1 to thisLine do
+      var r := NextRandom();
+      var idx := count;
+      for var j := 1 to count do
+        if r < odds[j] then
+          idx := j;
+          exit;
+        end;
+      end;
+      block[used] := chars[Int64(idx)];
+      used := used + 1;
+    end;
+    block[used] := 10;
+    used := used + 1;
+    produced := produced + thisLine;
+  end;
+end RandomFasta;
+
+// the odds add up as the table fills
+procedure Weight(var odds: Odds; i: Int32; w: Float64);
+begin
+  if i = 1 then
+    odds[i] := w;
+  else
+    odds[i] := odds[i - 1] + w;
+  end;
+end Weight;
+
+begin
+  // the size comes from the command line, 1000 without one
+  var n: Int32 := 1000;
+  if argcount() > 0 then
+    if not val(arg(1), n) then
+      halt(2);
+    end;
+  end;
+
+  var alu := "GGCCGGGCGCGGTGGCTCACGCCTGTAATCCCAGCACTTTGG" &
+             "GAGGCCGAGGCGGGCGGATCACCTGAGGTCAGGAGTTCGAGA" &
+             "CCAGCCTGGCCAACATGGTGAAACCCCGTCTCTACTAAAAAT" &
+             "ACAAAAATTAGCCGGGCGTGGTGGCGCGCGCCTGTAATCCCA" &
+             "GCTACTCGGGAGGCTGAGGCAGGAGAATCGCTTGAACCCGGG" &
+             "AGGCGGAGGTTGCAGTGAGCCGAGATCGCGCCACTGCACTCC" &
+             "AGCCTGGGCGACAGAGCGAGACTCCGTCTCAAAAA";
+
+  Weight(iubOdds, 1, 0.27);
+  Weight(iubOdds, 2, 0.12);
+  Weight(iubOdds, 3, 0.12);
+  Weight(iubOdds, 4, 0.27);
+  for var i: Int32 := 5 to 15 do
+    Weight(iubOdds, i, 0.02);
+  end;
+  Weight(sapiensOdds, 1, 0.3029549426680);
+  Weight(sapiensOdds, 2, 0.1979883004921);
+  Weight(sapiensOdds, 3, 0.1975473066391);
+  Weight(sapiensOdds, 4, 0.3015094502008);
+
+  RepeatFasta("ONE", "Homo sapiens alu", alu, Int64(n) * 2);
+  RandomFasta("TWO", "IUB ambiguity codes", "acgtBDHKMNRSVWY", iubOdds,
+              15, Int64(n) * 3);
+  RandomFasta("THREE", "Homo sapiens frequency", "acgt", sapiensOdds, 4,
+              Int64(n) * 5);
+  Flush();
+end FastaC.
