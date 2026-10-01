@@ -56,6 +56,7 @@ typedef struct {
     bool wide;        /* registers past 255 (see the top) */
     uint32_t temp;    /* wide: the first of the four low temporaries */
     uint32_t pending; /* wide: the high register of the result, or 0 */
+    uint32_t moved;   /* the word of the last MOVE emitted, plus 1 */
     uint32_t cur;     /* the position of the words being emitted */
     uint32_t *code, *pos, ncode, capcode, cappos;
     uint64_t *k;
@@ -85,6 +86,7 @@ typedef struct {
     uint32_t *fpm;  /* of an f64 fadd, fsub, fmul: the fmul fused in */
     uint32_t *base_of; /* of an addr folded into its loads and stores */
     uint32_t *zld;     /* of a zext: the load of i8 right before it */
+    uint8_t *once;     /* of a value: read by one operand, no more */
     uint32_t *npred;   /* of each block: the jumps to it */
     fixup *fix;
     uint32_t nfix, capfix;
@@ -182,11 +184,19 @@ static uint32_t konst2(L *l, uint64_t a, uint64_t b)
     return l->nk - 2;
 }
 
-/* a JMP to block b (or, with b = LIMBA_NONE, to a word fixed later) */
+/* a JMP to block b (or, with b = LIMBA_NONE, to a word fixed later).
+   Right after a MOVE, the MOVE becomes a MOVJ that takes the JMP: the
+   JMP stays a JMP for whoever jumps to it */
 static uint32_t jump_to(L *l, uint32_t b)
 {
-    uint32_t at = emit(l, meri_sj(MERI_OP_JMP, 0));
+    uint32_t at;
 
+    if (!l->failed && l->moved && l->moved == l->ncode) {
+        uint32_t w = l->code[l->moved - 1];
+        l->code[l->moved - 1] =
+            meri_abc(MERI_OP_MOVJ, MERI_W_A(w), MERI_W_B(w), 0);
+    }
+    at = emit(l, meri_sj(MERI_OP_JMP, 0));
     if (l->failed)
         return 0;
     if (!grow((void **)&l->fix, &l->capfix, l->nfix + 1, sizeof(fixup))) {
@@ -216,7 +226,7 @@ static void move(L *l, unsigned dst, unsigned src)
         emit(l, meri_abc(MERI_OP_MOVEW, 0, 0, 0));
         emit(l, dst | (uint32_t)src << 16);
     } else {
-        emit(l, meri_abc(MERI_OP_MOVE, dst, src, 0));
+        l->moved = emit(l, meri_abc(MERI_OP_MOVE, dst, src, 0)) + 1;
     }
 }
 
@@ -1674,13 +1684,14 @@ static bool find_fusions(L *l)
     l->fpm = malloc(n * sizeof(uint32_t));
     l->base_of = malloc(n * sizeof(uint32_t));
     l->zld = malloc(n * sizeof(uint32_t));
+    l->once = malloc(n);
     l->fu.hoist = calloc(n, 1);
     need = calloc(n, sizeof(uint32_t));
     seq = malloc(n * sizeof(uint32_t));
     if (!uses || !need || !seq || !l->fu.absorbed || !l->fu.anchor || !l->rlo ||
         !l->rhi || !l->ridx || !l->ldx || !l->fold || !l->nz || !l->tz ||
         !l->ccmp || !l->rsub || !l->done || !l->kop || !l->smod || !l->fwd ||
-        !l->fpm || !l->base_of || !l->zld || !l->fu.hoist) {
+        !l->fpm || !l->base_of || !l->zld || !l->once || !l->fu.hoist) {
         free(uses);
         free(need);
         free(seq);
@@ -2026,6 +2037,8 @@ static bool find_fusions(L *l)
             continue;
         l->fu.alias[i] = src;
     }
+    for (i = 0; i < f->ninsts; i++)
+        l->once[i] = uses[i] == 1;
     free(uses);
     free(need);
     free(seq);
@@ -2124,12 +2137,13 @@ static bool indexed(L *l, uint32_t id, const limba_inst *in, unsigned a)
 
 /* the next instruction of the block being emitted that is emitted
    itself, LIMBA_NONE for none */
-static uint32_t next_inst(const L *l)
+/* the first instruction emitted after index j - 1 of the block, its
+   index in *at; LIMBA_NONE if none */
+static uint32_t next_from(const L *l, uint32_t j, uint32_t *at)
 {
     const limba_block *bl = &l->f->blocks[l->block];
-    uint32_t j;
 
-    for (j = l->ii + 1; j < bl->ninsts; j++) {
+    for (; j < bl->ninsts; j++) {
         uint32_t v = bl->insts[j];
         const limba_inst *in = &l->f->insts[v];
         if ((l->fu.hoist && l->fu.hoist[v]) || l->fu.absorbed[v])
@@ -2139,9 +2153,18 @@ static uint32_t next_inst(const L *l)
             l->fu.alias[v] != LIMBA_NONE &&
             l->al.reg[v] == l->al.reg[l->fu.alias[v]] && !l->sp.after[v].n)
             continue;
+        *at = j;
         return v;
     }
     return LIMBA_NONE;
+}
+
+/* the next instruction emitted in the block */
+static uint32_t next_inst(const L *l)
+{
+    uint32_t at;
+
+    return next_from(l, l->ii + 1, &at);
 }
 
 /* a range check fused into the check; false if none */
@@ -2164,8 +2187,26 @@ static bool range(L *l, uint32_t id, const limba_inst *in)
         uint32_t sb = l->rsub[id];
         /* with the sub i, lo right after it (CHKRS): nothing is emitted
            between them (a check reads an i1, so no string dies at it) */
-        uint32_t nx = next_inst(l);
+        uint32_t nx = next_inst(l), at, na;
         if (sb != LIMBA_NONE && !l->wide && nx == sb) {
+            /* and an addr of base + the sub, its only use, right after
+               it (CHKADDRS) */
+            next_from(l, l->ii + 1, &at);
+            na = next_from(l, at + 1, &at);
+            if (na != LIMBA_NONE && l->once[sb] &&
+                f->insts[na].op == LIMBA_OP_ADDR && l->fold[na] == LIMBA_NONE &&
+                !(l->fu.alias && l->fu.alias[na] != LIMBA_NONE) &&
+                f->operands[f->insts[na].first + 1] == sb &&
+                f->operands[f->insts[na].first] != sb) {
+                uint32_t base, idx, kx;
+                addr_parts(l, na, &base, &idx, &kx);
+                emit(l, meri_abc(MERI_OP_CHKADDRS, reg(l, na), ri,
+                                 use(l, base, 3)));
+                emit(l, rl | rh << 8 | konst(l, (uint64_t)in->imm) << 16);
+                emit(l, kx);
+                l->done[sb] = l->done[na] = 1;
+                return true;
+            }
             emit(l, meri_abc(MERI_OP_CHKRS, ri, rl, rh));
             emit(l, konst(l, (uint64_t)in->imm) | (uint32_t)reg(l, sb) << 16);
             l->done[sb] = 1;
@@ -2934,6 +2975,7 @@ static void function(meri_program *p, uint32_t fid, meri_diag *d)
     free(l.fpm);
     free(l.base_of);
     free(l.zld);
+    free(l.once);
     free(l.rsub);
     free(l.done);
     free(l.at_of);

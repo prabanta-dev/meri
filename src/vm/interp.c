@@ -1142,6 +1142,9 @@ ret:
 op_JMP:
     pc += MERI_W_SJ(w);
     NEXT;
+op_MOVJ:
+    RA = RB;
+    JUMP_IF(1, 1);
 op_TEST:
     JUMP_IF(RA != 0, MERI_W_B(w));
 op_JEQ:
@@ -1527,6 +1530,19 @@ op_CHKADDR: {
     if (!((int64_t)base[x & 0xff] <= v && v <= (int64_t)base[x >> 8 & 0xff]))
         TRAP((int64_t)k[x >> 16]);
     RA = RC + RB * k[y] + k[y + 1];
+    NEXT;
+}
+op_CHKADDRS: {
+    int64_t v = (int64_t)RB;
+    uint64_t lo;
+    uint32_t y;
+    ip = pc - 1;
+    x = *pc++;
+    y = *pc++;
+    lo = base[x & 0xff];
+    if (!((int64_t)lo <= v && v <= (int64_t)base[x >> 8 & 0xff]))
+        TRAP((int64_t)k[x >> 16]);
+    RA = RC + (RB - lo) * k[y] + k[y + 1];
     NEXT;
 }
 op_PUTC: {

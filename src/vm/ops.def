@@ -278,3 +278,8 @@ MERI_OP(CHKADDR, "chkaddr", MERI_FMT_ABC_XY)
    ref as a str: the count is first in both) */
 MERI_OP(RRELEASE, "rrelease", MERI_FMT_A)
 MERI_OP(STSR, "stsr", MERI_FMT_ABC)
+/* CHKADDR of the sub of the low limit: the index R[B] checked, then
+   R[A] = R[C] + (R[B] - R[X & 0xff]) * K[Y] + K[Y + 1] */
+MERI_OP(CHKADDRS, "chkaddrs", MERI_FMT_ABC_XY)
+/* R[A] = R[B], then the JMP after it (a MOVE before a JMP) */
+MERI_OP(MOVJ, "movj", MERI_FMT_ABJ)

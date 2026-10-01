@@ -1,0 +1,28 @@
+; trap: 100
+; at: 9:4
+; CHKADDRS stops at an index past its limits, the lower one in a
+; register, where the check is, before any address is used
+pos 1 "t.luxia" 9 4
+func @get : fn(ptr, i64, i64, i64) -> i64 {
+b0(v0: ptr, v1: i64, v2: i64, v3: i64):
+  v5 = icmp.sge i1 v3, v1 !1
+  v6 = icmp.sle i1 v3, v2 !1
+  v7 = and i1 v5, v6 !1
+  check v7, 100 !1
+  v8 = sub i64 v3, v1
+  v9 = addr ptr v0, v8, 8, 0
+  v10 = load i64 v9
+  store v10, v9
+  ret v10
+}
+
+func @main : fn() -> i64 {
+b0:
+  v0 = iconst i64 16
+  v1 = call.rt ptr mem_alloc(v0)
+  v2 = iconst i64 1
+  v3 = iconst i64 2
+  v4 = iconst i64 3
+  v5 = call i64 @get(v1, v2, v3, v4)
+  ret v5
+}
