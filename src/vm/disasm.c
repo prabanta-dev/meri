@@ -88,10 +88,6 @@ static void operands(FILE *out, const meri_fn *fn, uint32_t at)
         fprintf(out, " r%u, r%u, r%u -> %" PRId64, MERI_W_A(w), MERI_W_B(w),
                 MERI_W_C(w), (int64_t)at + 2 + MERI_W_SJ(x));
         break;
-    case MERI_FMT_ABJ:
-        fprintf(out, " r%u, r%u -> %" PRId64, MERI_W_A(w), MERI_W_B(w),
-                (int64_t)at + 2 + MERI_W_SJ(x));
-        break;
     }
 }
 

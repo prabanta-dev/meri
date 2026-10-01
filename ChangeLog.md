@@ -158,8 +158,7 @@
   it is passed to when their pieces allow it, even before that parameter
   has one; more loops end in LOOP and fewer copies are left on their
   edges. A jump to a JMP goes where that one goes.
-- A copy right before a jump is one instruction with it (`MOVJ`); a range
-  check, the sub of its lower limit in a register and the addr of that
-  index, one too (`CHKADDRS`).
+- A range check, the sub of its lower limit in a register and the addr of
+  that index are one instruction (`CHKADDRS`).
 - The repository: build script (it builds Limba first, in the same
   variant, and links every program with its library), licence, style.

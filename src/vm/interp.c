@@ -1142,9 +1142,6 @@ ret:
 op_JMP:
     pc += MERI_W_SJ(w);
     NEXT;
-op_MOVJ:
-    RA = RB;
-    JUMP_IF(1, 1);
 op_TEST:
     JUMP_IF(RA != 0, MERI_W_B(w));
 op_JEQ:

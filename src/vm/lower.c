@@ -56,7 +56,6 @@ typedef struct {
     bool wide;        /* registers past 255 (see the top) */
     uint32_t temp;    /* wide: the first of the four low temporaries */
     uint32_t pending; /* wide: the high register of the result, or 0 */
-    uint32_t moved;   /* the word of the last MOVE emitted, plus 1 */
     uint32_t cur;     /* the position of the words being emitted */
     uint32_t *code, *pos, ncode, capcode, cappos;
     uint64_t *k;
@@ -184,19 +183,11 @@ static uint32_t konst2(L *l, uint64_t a, uint64_t b)
     return l->nk - 2;
 }
 
-/* a JMP to block b (or, with b = LIMBA_NONE, to a word fixed later).
-   Right after a MOVE, the MOVE becomes a MOVJ that takes the JMP: the
-   JMP stays a JMP for whoever jumps to it */
+/* a JMP to block b (or, with b = LIMBA_NONE, to a word fixed later) */
 static uint32_t jump_to(L *l, uint32_t b)
 {
-    uint32_t at;
+    uint32_t at = emit(l, meri_sj(MERI_OP_JMP, 0));
 
-    if (!l->failed && l->moved && l->moved == l->ncode) {
-        uint32_t w = l->code[l->moved - 1];
-        l->code[l->moved - 1] =
-            meri_abc(MERI_OP_MOVJ, MERI_W_A(w), MERI_W_B(w), 0);
-    }
-    at = emit(l, meri_sj(MERI_OP_JMP, 0));
     if (l->failed)
         return 0;
     if (!grow((void **)&l->fix, &l->capfix, l->nfix + 1, sizeof(fixup))) {
@@ -226,7 +217,7 @@ static void move(L *l, unsigned dst, unsigned src)
         emit(l, meri_abc(MERI_OP_MOVEW, 0, 0, 0));
         emit(l, dst | (uint32_t)src << 16);
     } else {
-        l->moved = emit(l, meri_abc(MERI_OP_MOVE, dst, src, 0)) + 1;
+        emit(l, meri_abc(MERI_OP_MOVE, dst, src, 0));
     }
 }
 
