@@ -160,5 +160,8 @@
   edges. A jump to a JMP goes where that one goes.
 - A range check, the sub of its lower limit in a register and the addr of
   that index are one instruction (`CHKADDRS`).
+- `tests/luxia/benchmarks/pidigits-gmp.luxia`: pidigits on GMP through
+  external routines, as the Python program of the benchmarks calls it;
+  only Meri runs it (the reference interpreter does not call C).
 - The repository: build script (it builds Limba first, in the same
   variant, and links every program with its library), licence, style.
