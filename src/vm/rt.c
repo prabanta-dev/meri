@@ -294,10 +294,12 @@ static bool power(meri_state *s, uint32_t id, uint64_t *a)
 /* str_to_i64 and str_to_u64: (s, p, lo, hi) -> i1, the value at p */
 static bool to_int(uint32_t id, uint64_t *a)
 {
-    uint64_t mag;
+    /* limba_val_int leaves mag and neg alone when s is no number: they
+       are read only if it is one */
+    uint64_t mag = 0;
     const meri_str *x = meri_str_of(a[0]);
-    bool neg, ok = limba_val_int(x->data, x->len, &mag, &neg);
-    int64_t v = (int64_t)(neg ? 0 - mag : mag);
+    bool neg = false, ok = limba_val_int(x->data, x->len, &mag, &neg);
+    int64_t v = ok ? (int64_t)(neg ? 0 - mag : mag) : 0;
 
     if (id == LIMBA_RT_STR_TO_I64)
         ok = ok && mag <= (uint64_t)INT64_MAX + neg && v >= (int64_t)a[2] &&

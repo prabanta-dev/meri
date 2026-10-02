@@ -13,9 +13,14 @@
 ; output: -inf
 ; output: true
 ; output: 2.5
+; output: false
+; output: false
+; output: false
+; output: false
 ; result: 0
 ; val (luxia-0.md § 9.4): a Luxia literal with blanks around and a sign;
 ; _ only between two digits; both bounds; inf and nan (without a sign)
+; nothing but blanks and a sign: false before the sign is known
 func @main : fn() -> i64 {
   slot 8 align 8
 b0:
@@ -78,6 +83,21 @@ b0:
   call.rt void print_nl()
   v27 = load f32 v0
   call.rt void print_f32(v27)
+  call.rt void print_nl()
+  v31 = sconst str ""
+  v32 = call.rt i1 str_to_i64(v31, v0, v1, v2)
+  call.rt void print_bool(v32)
+  call.rt void print_nl()
+  v33 = sconst str " - "
+  v34 = call.rt i1 str_to_i64(v33, v0, v1, v2)
+  call.rt void print_bool(v34)
+  call.rt void print_nl()
+  v35 = call.rt i1 str_to_u64(v31, v0, v11, v2)
+  call.rt void print_bool(v35)
+  call.rt void print_nl()
+  v36 = sconst str "+"
+  v37 = call.rt i1 str_to_u64(v36, v0, v11, v2)
+  call.rt void print_bool(v37)
   call.rt void print_nl()
   v28 = iconst i64 0
   ret v28

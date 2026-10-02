@@ -1,0 +1,26 @@
+; output: 0
+; result: 0
+; the end of a loop no path reaches (loop_blocks sees no cycle): its add
+; takes the step as an immediate (ADDK), so LOOP, which wants the step in
+; a register, must not take it
+func @main : fn() -> i64 {
+b0:
+  v0 = iconst i64 0
+  v1 = iconst i64 1000
+  br b1(v0)
+b1(v2: i64):
+  call.rt void print_i64(v2)
+  call.rt void print_nl()
+  v3 = iconst i64 0
+  ret v3
+b2:
+  v4 = icmp.eq i1 v2, v1
+  cbr v4, b4, b3
+b3:
+  v5 = iconst i64 1
+  v6 = add i64 v2, v5
+  br b1(v6)
+b4:
+  v7 = iconst i64 0
+  ret v7
+}

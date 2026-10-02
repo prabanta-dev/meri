@@ -956,9 +956,11 @@ static bool loop_end(L *l, const limba_inst *t)
         return false;
     ai = &f->insts[add], bi = &f->insts[br];
     oa = f->operands + ai->first;
+    /* a step taken as an immediate by the add (ADDK, out of a loop as
+       loop_blocks sees it) has no register for LOOP */
     if ((ai->op != LIMBA_OP_ADD && ai->op != LIMBA_OP_SUB) ||
         bi->op != LIMBA_OP_BR || l->sp.after[add].n ||
-        edge_code_of(l, go, bi, 0, 0))
+        (l->kop && l->kop[add] != KNONE) || edge_code_of(l, go, bi, 0, 0))
         return false;
     bits = bits_of(ai->type);
     if (bits != 64 && bits != 32)

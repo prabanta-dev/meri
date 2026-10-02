@@ -189,5 +189,10 @@
   slots released at a return are kept in the bytecode, no longer read
   from the body of the IR. `test_api` compiles Luxia through Limba both
   ways and expects the same run.
+- Two faults found by the random net of prabanta: the end of a loop that
+  no path reaches took into LOOP an add whose step was an immediate,
+  with no register, and the compilation failed; `val` of an empty number
+  (blanks, or a sign alone) read a sign never written, undefined
+  behaviour. Each has its case in `tests/vm`.
 - The repository: build script (it builds Limba first, in the same
   variant, and links every program with its library), licence, style.
