@@ -205,5 +205,12 @@
   own, and the range checks that keep their trap in 16 bits are not
   fused. The bytecode of a function with fewer constants is the same; a
   table of 30 000 elements, refused before, runs. `test_kwide`.
+- Two tools for the checks, tracked: `tools/identity.sh` proves that a
+  change leaves the bytecode as it was (the hash of the bytecode as bytes,
+  `bytecode_dump`, and of the disassembly, before and after, on the same
+  2 129 modules); `tools/sorvegliato.sh` runs every program of a test or
+  measure with a time limit, a limit to its files and its process group
+  killed at the end. The guard before it, kept outside the repository,
+  could outlive a program and mark a later one as timed out.
 - The repository: build script (it builds Limba first, in the same
   variant, and links every program with its library), licence, style.
