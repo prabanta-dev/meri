@@ -194,5 +194,11 @@
   with no register, and the compilation failed; `val` of an empty number
   (blanks, or a sign alone) read a sign never written, undefined
   behaviour. Each has its case in `tests/vm`.
+- The constants of a function are found through two hash indexes (a
+  value, and a pair of neighbours, each to the first place it has), no
+  longer by a search from the start: a long block of constants, as a
+  table written as an aggregate, compiled in quadratic time (10 000
+  elements, 75 ms), now in linear time (4.6 ms). The bytecode is the same
+  word for word.
 - The repository: build script (it builds Limba first, in the same
   variant, and links every program with its library), licence, style.

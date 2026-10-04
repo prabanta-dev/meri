@@ -60,6 +60,10 @@ typedef struct {
     uint32_t *code, *pos, ncode, capcode, cappos;
     uint64_t *k;
     uint32_t nk, capk;
+    /* the first index of each constant, and of each pair of neighbours
+       k[i], k[i + 1]: open addressing, index + 1, 0 empty; capkx a power
+       of 2 more than twice nk */
+    uint32_t *kv, *kp, capkx;
     uint32_t *label; /* of each block */
     uint32_t block;  /* the block being emitted */
     meri_strplan sp; /* where the strings stop living */
@@ -147,38 +151,99 @@ static uint32_t emit(L *l, uint32_t w)
     return l->ncode++;
 }
 
+/* the constants are compared by their 64 bits, as they are kept: the
+   reals by their bits, so 0.0 and -0.0 are two and a NaN finds itself */
+static uint32_t khash(uint64_t a, uint64_t b)
+{
+    uint64_t h = a * 0x9e3779b97f4a7c15u ^ (b + 0x632be59bd9b4e019u);
+    h ^= h >> 31;
+    h *= 0xbf58476d1ce4e5b9u;
+    return (uint32_t)(h ^ h >> 29);
+}
+
+/* the slot of constant v in kv, or of the pair a, b in kp: where it is,
+   or the empty one where it goes */
+static uint32_t *kv_slot(L *l, uint64_t v)
+{
+    uint32_t m = l->capkx - 1, h = khash(v, 0) & m;
+
+    while (l->kv[h] && l->k[l->kv[h] - 1] != v)
+        h = (h + 1) & m;
+    return &l->kv[h];
+}
+
+static uint32_t *kp_slot(L *l, uint64_t a, uint64_t b)
+{
+    uint32_t m = l->capkx - 1, h = khash(a, b) & m, i;
+
+    while ((i = l->kp[h]) && (l->k[i - 1] != a || l->k[i] != b))
+        h = (h + 1) & m;
+    return &l->kp[h];
+}
+
+/* constant i, just put at the end of k, in the indexes: each keeps the
+   first place a value or a pair has, as a search from the start finds */
+static void kindex(L *l, uint32_t i)
+{
+    uint32_t *s = kv_slot(l, l->k[i]);
+
+    if (!*s)
+        *s = i + 1;
+    if (i > 0 && !*(s = kp_slot(l, l->k[i - 1], l->k[i])))
+        *s = i;
+}
+
+/* room in k for n constants more, and in the indexes */
+static bool kroom(L *l, uint32_t n)
+{
+    uint32_t c, i;
+
+    if (l->nk > 0x10000 - n ||
+        !grow((void **)&l->k, &l->capk, l->nk + n, sizeof(uint64_t))) {
+        fail(l, "more than 65536 constants");
+        return false;
+    }
+    if ((l->nk + n) * 2 < l->capkx)
+        return true;
+    c = l->capkx ? l->capkx * 2 : 256;
+    free(l->kv);
+    free(l->kp);
+    l->kv = calloc(c, sizeof(uint32_t));
+    l->kp = calloc(c, sizeof(uint32_t));
+    l->capkx = c;
+    if (!l->kv || !l->kp) {
+        l->capkx = 0;
+        fail(l, "out of memory");
+        return false;
+    }
+    for (i = 0; i < l->nk; i++)
+        kindex(l, i);
+    return true;
+}
+
 /* the index of constant v, added if new */
 static uint32_t konst(L *l, uint64_t v)
 {
-    uint32_t i;
-
-    for (i = 0; i < l->nk; i++)
-        if (l->k[i] == v)
-            return i;
-    if (l->nk > 0xffff ||
-        !grow((void **)&l->k, &l->capk, l->nk + 1, sizeof(uint64_t))) {
-        fail(l, "more than 65536 constants");
+    if (l->capkx && *kv_slot(l, v))
+        return *kv_slot(l, v) - 1;
+    if (!kroom(l, 1))
         return 0;
-    }
     l->k[l->nk] = v;
+    kindex(l, l->nk);
     return l->nk++;
 }
 
 /* two constants side by side, K[x] and K[x + 1] */
 static uint32_t konst2(L *l, uint64_t a, uint64_t b)
 {
-    uint32_t i;
-
-    for (i = 0; i + 1 < l->nk; i++)
-        if (l->k[i] == a && l->k[i + 1] == b)
-            return i;
-    if (l->nk > 0xfffe ||
-        !grow((void **)&l->k, &l->capk, l->nk + 2, sizeof(uint64_t))) {
-        fail(l, "more than 65536 constants");
+    if (l->capkx && *kp_slot(l, a, b))
+        return *kp_slot(l, a, b) - 1;
+    if (!kroom(l, 2))
         return 0;
-    }
     l->k[l->nk] = a;
+    kindex(l, l->nk);
     l->k[l->nk + 1] = b;
+    kindex(l, l->nk + 1);
     l->nk += 2;
     return l->nk - 2;
 }
@@ -2946,6 +3011,8 @@ static void function(meri_program *p, uint32_t fid, meri_diag *d)
     fn->pos = l.pos;
     fn->k = l.k;
     fn->nk = l.nk;
+    free(l.kv);
+    free(l.kp);
     free(l.label);
     free(order);
     free(pend);
