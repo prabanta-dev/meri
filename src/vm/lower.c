@@ -198,9 +198,9 @@ static bool kroom(L *l, uint32_t n)
 {
     uint32_t c, i;
 
-    if (l->nk > 0x10000 - n ||
+    if (l->nk > UINT32_MAX / 4 - n ||
         !grow((void **)&l->k, &l->capk, l->nk + n, sizeof(uint64_t))) {
-        fail(l, "more than 65536 constants");
+        fail(l, "too many constants, or out of memory");
         return false;
     }
     if ((l->nk + n) * 2 < l->capkx)
@@ -246,6 +246,18 @@ static uint32_t konst2(L *l, uint64_t a, uint64_t b)
     kindex(l, l->nk + 1);
     l->nk += 2;
     return l->nk - 2;
+}
+
+/* op A, Bx with constant x; past the first 65 536 of the function its
+   wide form, opw A, then x in a word of its own */
+static void emit_k(L *l, unsigned op, unsigned opw, unsigned a, uint32_t x)
+{
+    if (x <= 0xffff) {
+        emit(l, meri_abx(op, a, x));
+        return;
+    }
+    emit(l, meri_abc(opw, a, 0, 0));
+    emit(l, x);
 }
 
 /* a JMP to block b (or, with b = LIMBA_NONE, to a word fixed later) */
@@ -324,7 +336,7 @@ static void load_const(L *l, unsigned dst, uint64_t v)
     if (s >= INT16_MIN && s <= INT16_MAX)
         emit(l, meri_abx(MERI_OP_LOADI, dst, (uint16_t)(int16_t)s));
     else
-        emit(l, meri_abx(MERI_OP_LOADK, dst, konst(l, v)));
+        emit_k(l, MERI_OP_LOADK, MERI_OP_LOADKW, dst, konst(l, v));
 }
 
 /* ---- the copies of a jump ---- */
@@ -2256,19 +2268,27 @@ static bool range(L *l, uint32_t id, const limba_inst *in)
                 !(l->fu.alias && l->fu.alias[na] != LIMBA_NONE) &&
                 f->operands[f->insts[na].first + 1] == sb &&
                 f->operands[f->insts[na].first] != sb) {
-                uint32_t base, idx, kx;
+                uint32_t base, idx, kx, kc;
                 addr_parts(l, na, &base, &idx, &kx);
                 emit(l, meri_abc(MERI_OP_CHKADDRS, reg(l, na), ri,
                                  use(l, base, 3)));
-                emit(l, rl | rh << 8 | konst(l, (uint64_t)in->imm) << 16);
-                emit(l, kx);
-                l->done[sb] = l->done[na] = 1;
+                /* the trap in 16 bits: past them, not fused (the word
+                   taken back) */
+                if ((kc = konst(l, (uint64_t)in->imm)) <= 0xffff) {
+                    emit(l, rl | rh << 8 | kc << 16);
+                    emit(l, kx);
+                    l->done[sb] = l->done[na] = 1;
+                    return true;
+                }
+                l->ncode--;
+            }
+            if (konst(l, (uint64_t)in->imm) <= 0xffff) {
+                emit(l, meri_abc(MERI_OP_CHKRS, ri, rl, rh));
+                emit(l, konst(l, (uint64_t)in->imm) | (uint32_t)reg(l, sb)
+                                                          << 16);
+                l->done[sb] = 1;
                 return true;
             }
-            emit(l, meri_abc(MERI_OP_CHKRS, ri, rl, rh));
-            emit(l, konst(l, (uint64_t)in->imm) | (uint32_t)reg(l, sb) << 16);
-            l->done[sb] = 1;
-            return true;
         }
         /* with an addr of the index right after it (CHKADDR) */
         if (!l->wide && nx != LIMBA_NONE && f->insts[nx].op == LIMBA_OP_ADDR &&
@@ -2276,12 +2296,16 @@ static bool range(L *l, uint32_t id, const limba_inst *in)
             uint32_t base, idx, kx;
             addr_parts(l, nx, &base, &idx, &kx);
             if (idx == x) {
+                uint32_t kc;
                 emit(l, meri_abc(MERI_OP_CHKADDR, reg(l, nx), ri,
                                  use(l, base, 3)));
-                emit(l, rl | rh << 8 | konst(l, (uint64_t)in->imm) << 16);
-                emit(l, kx);
-                l->done[nx] = 1;
-                return true;
+                if ((kc = konst(l, (uint64_t)in->imm)) <= 0xffff) {
+                    emit(l, rl | rh << 8 | kc << 16);
+                    emit(l, kx);
+                    l->done[nx] = 1;
+                    return true;
+                }
+                l->ncode--; /* the trap past 16 bits: not fused */
             }
         }
         emit(l, meri_abc(MERI_OP_CHKR, ri, rl, rh));
@@ -2352,9 +2376,8 @@ static bool chknl(L *l, uint32_t id, const limba_inst *in)
         l->chk[pl] == LIMBA_NONE || f->operands[pi->first] != x ||
         limba_inst_pos(f, l->chk[pl]) != limba_inst_pos(f, id))
         return false;
-    emit(l, meri_abx(MERI_OP_CHKNL, use(l, x, 0),
-                     konst2(l, (uint64_t)in->imm,
-                            (uint64_t)f->insts[l->chk[pl]].imm)));
+    emit_k(l, MERI_OP_CHKNL, MERI_OP_CHKNLW, use(l, x, 0),
+           konst2(l, (uint64_t)in->imm, (uint64_t)f->insts[l->chk[pl]].imm));
     l->done[pl] = 1;
     return true;
 }
@@ -2610,8 +2633,8 @@ static void inst_body(L *l, uint32_t id, uint32_t next)
             uint32_t c = l->chk[id];
             unsigned p0 = use(l, o[0], 0);
             l->cur = limba_inst_pos(f, c);
-            emit(l, meri_abx(MERI_OP_CHKLIVE, p0,
-                             konst(l, (uint64_t)f->insts[c].imm)));
+            emit_k(l, MERI_OP_CHKLIVE, MERI_OP_CHKLIVEW, p0,
+                   konst(l, (uint64_t)f->insts[c].imm));
             return;
         }
         call(l, id, in);
@@ -2648,7 +2671,7 @@ static void inst_body(L *l, uint32_t id, uint32_t next)
         emit(l, meri_abc(MERI_OP_UNREACH, 0, 0, 0));
         return;
     case LIMBA_F_TRAP:
-        emit(l, meri_abx(MERI_OP_TRAP, 0, konst(l, (uint64_t)in->imm)));
+        emit_k(l, MERI_OP_TRAP, MERI_OP_TRAPW, 0, konst(l, (uint64_t)in->imm));
         return;
     case LIMBA_F_CHECK:
         if (l->gone && l->gone[id])
@@ -2665,11 +2688,9 @@ static void inst_body(L *l, uint32_t id, uint32_t next)
         }
         if (l->nz && l->nz[id] != LIMBA_NONE && chknl(l, id, in))
             return;
-        emit(l,
-             meri_abx(
-                 MERI_OP_CHECK,
-                 use(l, l->nz && l->nz[id] != LIMBA_NONE ? l->nz[id] : o[0], 0),
-                 konst(l, (uint64_t)in->imm)));
+        emit_k(l, MERI_OP_CHECK, MERI_OP_CHECKW,
+               use(l, l->nz && l->nz[id] != LIMBA_NONE ? l->nz[id] : o[0], 0),
+               konst(l, (uint64_t)in->imm));
         return;
     case LIMBA_F_PARAM:
         return;

@@ -200,5 +200,10 @@
   table written as an aggregate, compiled in quadratic time (10 000
   elements, 75 ms), now in linear time (4.6 ms). The bytecode is the same
   word for word.
+- A function may have more than 65 536 constants: past them LOADK, TRAP,
+  CHECK, CHKLIVE and CHKNL take a wide form, the index in a word of its
+  own, and the range checks that keep their trap in 16 bits are not
+  fused. The bytecode of a function with fewer constants is the same; a
+  table of 30 000 elements, refused before, runs. `test_kwide`.
 - The repository: build script (it builds Limba first, in the same
   variant, and links every program with its library), licence, style.

@@ -1332,6 +1332,32 @@ op_CHKNL:
     if (!meri_heap_live(&s->heap, RA))
         TRAP((int64_t)k[MERI_W_BX(w) + 1]);
     NEXT;
+op_LOADKW:
+    RA = k[*pc++];
+    NEXT;
+op_TRAPW:
+    ip = pc - 1;
+    TRAP((int64_t)k[*pc]);
+op_CHECKW:
+    ip = pc - 1;
+    x = *pc++;
+    if (!RA)
+        TRAP((int64_t)k[x]);
+    NEXT;
+op_CHKLIVEW:
+    ip = pc - 1;
+    x = *pc++;
+    if (!meri_heap_live(&s->heap, RA))
+        TRAP((int64_t)k[x]);
+    NEXT;
+op_CHKNLW:
+    ip = pc - 1;
+    x = *pc++;
+    if (!RA)
+        TRAP((int64_t)k[x]);
+    if (!meri_heap_live(&s->heap, RA))
+        TRAP((int64_t)k[x + 1]);
+    NEXT;
 op_CHKRS: {
     int64_t v = (int64_t)RA;
     ip = pc - 1;

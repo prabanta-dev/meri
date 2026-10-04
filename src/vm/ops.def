@@ -281,3 +281,11 @@ MERI_OP(STSR, "stsr", MERI_FMT_ABC)
 /* CHKADDR of the sub of the low limit: the index R[B] checked, then
    R[A] = R[C] + (R[B] - R[X & 0xff]) * K[Y] + K[Y + 1] */
 MERI_OP(CHKADDRS, "chkaddrs", MERI_FMT_ABC_XY)
+/* LOADK, TRAP, CHECK, CHKLIVE and CHKNL of a constant past the first
+   65 536 of the function: its index in the word X, not in Bx (only past
+   them: the bytecode of the others stays as it was) */
+MERI_OP(LOADKW, "loadkw", MERI_FMT_AKX)     /* R[A] = K[X] */
+MERI_OP(TRAPW, "trapw", MERI_FMT_AKX)       /* the code is K[X] */
+MERI_OP(CHECKW, "checkw", MERI_FMT_AKX)     /* the trap K[X] if R[A] is 0 */
+MERI_OP(CHKLIVEW, "chklivew", MERI_FMT_AKX) /* ptr_live R[A], else K[X] */
+MERI_OP(CHKNLW, "chknlw", MERI_FMT_AKX)     /* the traps K[X], K[X + 1] */
