@@ -70,6 +70,13 @@ void meri_state_free_strs(meri_state *s);
    a wrong module (MERI_BADMEM) */
 #define MERI_LOW_MEM ((uint64_t)1 << 16)
 
+/* a function that touches the memory of the program through pointers the
+   program gave: one the IR should have checked (nil) faults there, and
+   the fault is MERI_BADMEM (interp.c). The nil checks of UBSan would stop
+   the run first: they are off there, and only there */
+#define MERI_TOUCHES_PROGRAM                                                   \
+    __attribute__((no_sanitize("null", "nonnull-attribute")))
+
 static inline bool meri_mem_wrong(uint64_t p, uint64_t n)
 {
     uint64_t a = MERI_ADDR(p);

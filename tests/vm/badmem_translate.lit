@@ -1,0 +1,10 @@
+; stops: badmem
+; mem_translate of 4 bytes at nil, with no check before: MERI_BADMEM
+func @main : fn() -> i64 {
+b0:
+  v0 = null ptr
+  v1 = iconst i64 4
+  call.rt void mem_translate(v0, v1, v0)
+  v2 = iconst i64 0
+  ret v2
+}

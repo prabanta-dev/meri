@@ -106,7 +106,8 @@ void meri_state_release(meri_state *s, uint64_t v)
 }
 
 /* retain or release the str of one value of type t at p */
-static void rc_walk(meri_state *s, uintptr_t p, limba_id t, int d)
+MERI_TOUCHES_PROGRAM static void rc_walk(meri_state *s, uintptr_t p, limba_id t,
+                                         int d)
 {
     const limba_module *m = s->p->m;
     const limba_type *ty = &m->types[t];
@@ -249,7 +250,7 @@ static meri_str *line(meri_state *st, bool *ok)
 }
 
 /* store the bits of type t at p, as the IR's store */
-static void put(uint64_t p, limba_id t, uint64_t v)
+MERI_TOUCHES_PROGRAM static void put(uint64_t p, limba_id t, uint64_t v)
 {
     void *q = (void *)(uintptr_t)MERI_ADDR(p);
 
@@ -323,7 +324,7 @@ static int nomem(meri_state *s)
     return STOP;
 }
 
-static int console(meri_state *s, uint32_t id, uint64_t *a)
+MERI_TOUCHES_PROGRAM static int console(meri_state *s, uint32_t id, uint64_t *a)
 {
     char buf[LIMBA_FMT_F64_MAX];
     int n;
@@ -417,7 +418,7 @@ static int console(meri_state *s, uint32_t id, uint64_t *a)
     return NOT_MINE;
 }
 
-static int strings(meri_state *s, uint32_t id, uint64_t *a)
+MERI_TOUCHES_PROGRAM static int strings(meri_state *s, uint32_t id, uint64_t *a)
 {
     char buf[LIMBA_FMT_FIXED_MAX];
     int n;
@@ -574,7 +575,8 @@ static bool maths(uint32_t id, uint64_t *a)
 }
 
 /* swaps the n elements of size bytes at p end for end */
-static void reverse(unsigned char *p, uint64_t n, uint64_t size)
+MERI_TOUCHES_PROGRAM static void reverse(unsigned char *p, uint64_t n,
+                                         uint64_t size)
 {
     unsigned char *q = p + (n - 1) * size, t[64];
 
@@ -613,7 +615,7 @@ static void reverse(unsigned char *p, uint64_t n, uint64_t size)
 
 /* the routines of arrays (luxia_0.md § 9.5): everything checked before,
    in the IR; with n = 0 no pointer is read */
-static int arrays(uint32_t id, uint64_t *a)
+MERI_TOUCHES_PROGRAM static int arrays(uint32_t id, uint64_t *a)
 {
     unsigned char *p = (unsigned char *)(uintptr_t)MERI_ADDR(a[0]);
     uint64_t n = a[1], i;

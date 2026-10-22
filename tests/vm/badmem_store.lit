@@ -1,0 +1,9 @@
+; stops: badmem
+; a store through nil itself with no check before: MERI_BADMEM
+func @main : fn() -> i64 {
+b0:
+  v0 = null ptr
+  v1 = iconst i64 7
+  store v1, v0
+  ret v1
+}

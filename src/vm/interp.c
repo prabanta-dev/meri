@@ -565,9 +565,10 @@ static uint32_t caller_pos(const frame *frames, size_t depth)
     return 0;
 }
 
-static void run(meri_state *s, const meri_fn *entry, void **globals,
-                uint64_t *regs, uint8_t *slotmem, size_t nslotmem,
-                frame *frames, meri_result *r)
+MERI_TOUCHES_PROGRAM static void run(meri_state *s, const meri_fn *entry,
+                                     void **globals, uint64_t *regs,
+                                     uint8_t *slotmem, size_t nslotmem,
+                                     frame *frames, meri_result *r)
 {
     static const void *const disp[MERI_OP_COUNT] = {
 #define MERI_OP(name, text, format) &&op_##name,

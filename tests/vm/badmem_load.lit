@@ -1,0 +1,15 @@
+; output: before
+; stops: badmem
+; a load through nil itself (address 0) with no check before: a wrong
+; module, MERI_BADMEM, in every build, sanitizers too; what was printed
+; before stays
+func @main : fn() -> i64 {
+b0:
+  v0 = sconst str "before"
+  call.rt void print_str(v0)
+  call.rt void print_nl()
+  v1 = null ptr
+  v2 = load i64 v1
+  call.rt void print_i64(v2)
+  ret v2
+}

@@ -262,7 +262,7 @@ static uint64_t f32bits(float f)
     return v;
 }
 
-static void put64(uint64_t p, uint64_t v)
+MERI_TOUCHES_PROGRAM static void put64(uint64_t p, uint64_t v)
 {
     memcpy((void *)(uintptr_t)MERI_ADDR(p), &v, sizeof(v));
 }
@@ -370,7 +370,7 @@ static int library(meri_state *s, uint32_t id, uint64_t *a)
     return give(a, r);
 }
 
-int meri_big_call(meri_state *s, uint32_t id, uint64_t *a)
+MERI_TOUCHES_PROGRAM int meri_big_call(meri_state *s, uint32_t id, uint64_t *a)
 {
     jmp_buf jb;
     meri_big *volatile r = NULL;

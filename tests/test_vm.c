@@ -22,7 +22,8 @@
  *                       and nothing runs
  *   "; memory: broken"  a rule of the strings in memory broken: the first
  *                       cut of Meri does not check them, so it is skipped
- *   "; stops: <how>"    the run ends unreachable or badcall (tests/vm only)
+ *   "; stops: <how>"    the run ends unreachable, badcall or badmem
+ *                       (tests/vm only)
  *   "; never: <op>"     no function of the bytecode has the instruction op
  *                       (tests/vm only): a fusion that must not happen
  * An exception no handler catches ends the run (progetto_ir.md § 11i):
@@ -138,6 +139,8 @@ static void header(const char *text, expect *e)
             e->status = MERI_UNREACHABLE;
         } else if (!strncmp(p, "; stops: badcall", 16)) {
             e->status = MERI_BADCALL;
+        } else if (!strncmp(p, "; stops: badmem", 15)) {
+            e->status = MERI_BADMEM;
         } else if (!strncmp(p, "; message: ", 11) && n - 11 < sizeof(e->msg)) {
             memcpy(e->msg, p + 11, n - 11);
             e->msg[n - 11] = 0;

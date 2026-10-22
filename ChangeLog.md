@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- `MERI_BADMEM` also under UndefinedBehaviorSanitizer: the functions that
+  touch the memory of the program through its pointers (the interpreter,
+  the runtime's that read or write memory) leave the nil checks of the
+  sanitizer out, so that the fault comes and is the status, with the
+  output written before it kept.
+
 - The set "under a handler" of Limba (`limba_module_handled`), asked at
   the end of the compilation: a function out of it has no table and no
   pads, an exception stops the run there. A module without exceptions has
