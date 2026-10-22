@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- The programs of Luxia leave for its repository (`../Luxia`): the
+  benchmarks that call C (`tests/benchmarks/c` there), the test of the API that compiles Luxia
+  (`test_meri_api` there) and the probes of the calls of C, which Luxia's
+  `build.sh test` runs through `meri`. `tools/identity.sh` makes its
+  modules with Luxia's `lx_gen` and `luxia --emit=lir` (`LUXIA_DIR`,
+  `../Luxia` by default).
+
 - `meri` reads a module of the IR (`.lir`), verifies it with the verifier
   of Limba and prints a summary: tables, functions, operations.
 - A first virtual machine: the IR (version 3) compiled to bytecode of

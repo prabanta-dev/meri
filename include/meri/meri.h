@@ -3,8 +3,8 @@
 /*
  * meri.h - Meri as a library: a module of the IR of Limba compiled to
  * bytecode and run, as the program meri does with a .lir and as a program
- * that has the IR in memory (prabanta) does with the front end of Limba
- * (limba/limba_luxia.h), a function at a time.
+ * that has the IR in memory (luxia) does with a front end (Luxia's
+ * limba/limba_luxia.h), a function at a time.
  *
  * What a user may rely on:
  *

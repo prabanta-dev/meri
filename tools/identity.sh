@@ -13,9 +13,10 @@
 # sabotage of the change (one that does touch the bytecode) must list
 # something: else the proof does not see the change.
 #
-# The modules: the programs of lx_gen and lx_gen -d, seeds 1..500, at -O0
-# and -O1; the benchmarks of Limba and of Meri, at -O0 and -O1; the .lit
-# of tests/vm and of Limba's tests/eval. Their .lir are made once, in
+# The modules: the programs of Luxia's lx_gen and lx_gen -d, seeds 1..500,
+# made into IR by luxia --emit=lir at -O0 and -O1; the benchmarks of
+# Luxia (with those that call C, in benchmarks/c), at -O0 and -O1; the .lit of tests/vm and of Limba's tests/eval,
+# through limba. Their .lir are made once, in
 # $IDENT_DIR/lir (~/tmp/meri/ident/lir by default), and reused: before and
 # after compare the same IR. For each one, the hash of the bytecode as
 # bytes (bytecode_dump) and of meri --disasm. Every program runs under
@@ -25,6 +26,8 @@ set -u
 MERI_DIR=$(cd "$(dirname "$0")/.." && pwd)
 LIMBA_DIR="${LIMBA_DIR:-$MERI_DIR/../Limba}"
 LB="$LIMBA_DIR/bin/x86_64-linux"
+LUXIA_DIR="${LUXIA_DIR:-$MERI_DIR/../Luxia}"
+XB="$LUXIA_DIR/bin/x86_64-linux"
 MB="$MERI_DIR/bin/x86_64-linux"
 SORV="$MERI_DIR/tools/sorvegliato.sh"
 WORK="${IDENT_DIR:-$HOME/tmp/meri/ident}"
@@ -48,31 +51,34 @@ if [ "${1:-}" = -c ]; then
 fi
 [ $# -eq 1 ] || { echo "usage: identity.sh DIR | -c A B" >&2; exit 2; }
 OUT="$1"
-for x in "$LB/lx_gen" "$LB/limba" "$MB/meri" "$MB/bytecode_dump"; do
-    [ -x "$x" ] || { echo "identity: $x missing: ./build.sh release" >&2
+for x in "$XB/lx_gen" "$XB/luxia" "$LB/limba" "$MB/meri" \
+    "$MB/bytecode_dump"; do
+    [ -x "$x" ] || { echo "identity: $x missing: ./build.sh release" \
+        "(here and in Luxia)" >&2
         exit 2; }
 done
 mkdir -p "$OUT" "$LIR" "$WORK/d" || exit 1
 
 if [ ! -e "$LIR/done" ]; then
     for s in $(seq 1 500); do
-        "$LB/lx_gen" "$s" >"$LIR/lx$s.luxia"
-        "$LB/lx_gen" -d "$WORK/d/lxd$s" "$s"
+        "$XB/lx_gen" "$s" >"$LIR/lx$s.luxia"
+        "$XB/lx_gen" -d "$WORK/d/lxd$s" "$s"
         std=()
         [ -d "$WORK/d/lxd$s/std" ] && std=(--stdlib="$WORK/d/lxd$s/std")
         for o in O0 O1; do
-            "$LB/limba" -$o -o "$LIR/lx$s-$o.lir" "$LIR/lx$s.luxia" \
-                2>/dev/null
-            "$LB/limba" -$o "${std[@]}" -o "$LIR/lxd$s-$o.lir" \
+            "$XB/luxia" --emit=lir -$o -o "$LIR/lx$s-$o.lir" \
+                "$LIR/lx$s.luxia" 2>/dev/null
+            "$XB/luxia" --emit=lir -$o "${std[@]}" -o "$LIR/lxd$s-$o.lir" \
                 "$WORK/d/lxd$s/prog/prog.luxia" 2>/dev/null
         done
     done
-    for b in "$LIMBA_DIR"/tests/luxia/benchmarks/*.luxia \
-        "$MERI_DIR"/tests/luxia/benchmarks/*.luxia; do
+    for b in "$LUXIA_DIR"/tests/benchmarks/*.luxia \
+        "$LUXIA_DIR"/tests/benchmarks/c/*.luxia; do
         [ -e "$b" ] || continue
         n=$(basename "$b" .luxia)
         for o in O0 O1; do
-            "$LB/limba" -$o -o "$LIR/b-$n-$o.lir" "$b" 2>/dev/null
+            "$XB/luxia" --emit=lir -$o -o "$LIR/b-$n-$o.lir" "$b" \
+                2>/dev/null
         done
     done
     for t in "$MERI_DIR"/tests/vm/*.lit "$LIMBA_DIR"/tests/eval/*.lit; do

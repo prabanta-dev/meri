@@ -29,7 +29,7 @@ machine: no JIT and no AOT yet.
 
 ## Using it
 
-    limba -O1 program.luxia          # writes program.lir
+    luxia --emit=lir program.luxia   # writes program.lir (Luxia)
     meri program.lir [arguments]     # runs it
     meri --disasm program.lir        # prints its bytecode
     meri --summary program.lir       # prints what the module holds
@@ -44,16 +44,17 @@ physical memory): past it, "out of memory", never a crash. An error of
 input or output is `input/output error`; a program whose output is closed
 (`program | head`) ends with status 141 and no message.
 
-What runs today: all of Luxia 0 that Limba compiles, the integers of any
+What runs today: all of Luxia 0 that its front end compiles, the integers of any
 size (BigInt, on mini-gmp) and calls of C libraries declared in the
 program (x86-64 Linux only), with Meri's own calling convention, without
 libffi.
 
 ## The plan
 
-- `meri program.lir` runs the IR written by `limba`.
-- `prabanta program.luxia` does both in one executable, in a repository
-  of its own: the two libraries are linked statically, and each function
+- `meri program.lir` runs the IR written by a front end, such as
+  `luxia --emit=lir`.
+- `luxia program.luxia` does both in one executable, in the repository of
+  the language: the libraries are linked statically, and each function
   goes from the front end to the back end in memory, as soon as it is
   complete, with no file in between.
 - The virtual machine keeps one file of 64-bit registers, a window of them
@@ -64,11 +65,11 @@ libffi.
 ## As a library
 
 `include/meri/meri.h` is Meri for another program: a module of the IR
-compiled whole, or a function at a time as the front end of Limba gives
-it (`limba/limba_luxia.h`), each body read once, while it is still there;
+compiled whole, or a function at a time as a front end gives it (Luxia's
+`limba/limba_luxia.h`), each body read once, while it is still there;
 the C libraries linked; the run; its end flushed and reported as `meri`
-reports it. `tests/test_api.c` uses that header only, fed by the front
-end of Limba.
+reports it. Luxia's `tests/test_meri_api.c` uses that header only, fed by
+the front end of Luxia.
 
 ## Building
 
