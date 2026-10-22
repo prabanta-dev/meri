@@ -82,13 +82,17 @@ void meri_disasm(const meri_program *p, FILE *out);
 
 enum meri_status {
     MERI_OK,          /* returned */
-    MERI_TRAP,        /* a run-time error: code says which (traps.def) */
+    MERI_TRAP,        /* a run-time error (traps.def), or an exception no
+                         handler caught: code is its identity */
     MERI_HALT,        /* halt(code): code is the exit status */
     MERI_UNREACHABLE, /* executed unreachable */
     MERI_BADCALL,     /* call.ind of a value that is no such function */
     MERI_UNSUPPORTED, /* call.ext */
     MERI_BADENTRY,    /* no entry function, it takes parameters, or the
                          compilation has not ended */
+    MERI_BADMEM,      /* memory touched in its first 64 KiB, or past its
+                         end, by an access the IR should have checked
+                         first (nil): a wrong module, never a crash */
 };
 
 typedef struct {
@@ -100,10 +104,11 @@ typedef struct {
        and in blocks never freed, or a missed release) */
     uint64_t live_strings;
     uint64_t live_refs; /* the same for the numbers of BigInt */
-    /* an exception raised by the program (raise) that no handler caught:
-       its message (msglen bytes, not terminated), valid until the program
-       is run again or freed; NULL for a trap of the engine, whose words
-       are those of the module or of traps.def */
+    /* the words of an exception no handler caught (msglen bytes, not
+       terminated): raised with them, or a trap's made when a handler
+       caught it and raised it again; valid until the program is run again
+       or freed. NULL for a trap no handler saw (and a raise of the str
+       0): its words are those of the module or of traps.def */
     const char *msg;
     size_t msglen;
 } meri_result;

@@ -375,6 +375,10 @@ static int console(meri_state *s, uint32_t id, uint64_t *a)
     case LIMBA_RT_IO_READ: { /* (a, n) -> i64: fewer than n only at the end */
         uint64_t n = a[1], got = 0;
         FILE *in = s->env->in;
+        if (meri_mem_wrong(a[0], n)) {
+            s->status = MERI_BADMEM;
+            return STOP;
+        }
         if (n && in && !s->eof) {
             got = fread((void *)(uintptr_t)MERI_ADDR(a[0]), 1, (size_t)n, in);
             if (got < n && ferror(in))
@@ -386,6 +390,10 @@ static int console(meri_state *s, uint32_t id, uint64_t *a)
         return DONE;
     }
     case LIMBA_RT_IO_WRITE: /* (a, n): n = 0 reads nothing */
+        if (meri_mem_wrong(a[0], a[1])) {
+            s->status = MERI_BADMEM;
+            return STOP;
+        }
         return out(s, (const void *)(uintptr_t)MERI_ADDR(a[0]), (size_t)a[1])
                    ? DONE
                    : STOP;

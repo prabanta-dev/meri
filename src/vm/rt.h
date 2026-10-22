@@ -65,6 +65,18 @@ meri_str *meri_state_immortal(meri_state *s, const char *p, size_t n);
 void meri_state_rc(meri_state *s, uint64_t p, limba_id t, uint64_t n, int d);
 void meri_state_free_strs(meri_state *s);
 
+/* the memory of the program never lies in the first 64 KiB, nor wraps:
+   n bytes from p there are an access the IR should have checked (nil),
+   a wrong module (MERI_BADMEM) */
+#define MERI_LOW_MEM ((uint64_t)1 << 16)
+
+static inline bool meri_mem_wrong(uint64_t p, uint64_t n)
+{
+    uint64_t a = MERI_ADDR(p);
+
+    return n && (a < MERI_LOW_MEM || n - 1 > UINT64_MAX - a);
+}
+
 /* call runtime function id with the arguments a[0..n); the result, if
    any, goes to a[0]. false when the run stops: s->status says why */
 bool meri_rt_call(meri_state *s, uint32_t id, uint64_t *a);

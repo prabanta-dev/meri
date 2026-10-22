@@ -11,6 +11,8 @@
  *   "; result: <n>"     what main returns
  *   "; trap: <code>"    the run-time error it stops with
  *   "; at: <l>:<c>"     where (tests/vm only)
+ *   "; message: <text>" the words of the exception no handler caught
+ *                       (meri_result.msg)
  *   "; report: <line>"  what meri_report writes, without its newline
  *                       (tests/vm only)
  *   "; strings: <n>"    strings still alive at the end (tests/vm only):
@@ -25,9 +27,10 @@
  *                       (tests/vm only): a fusion that must not happen
  * An exception no handler catches ends the run (progetto_ir.md § 11i):
  * "; trap: <n>" is then its identity.
- *   "; module: wrong"   a check the IR makes before a call of the run time
- *                       is missing (lir_run calls the module wrong): Meri
- *                       must stop with a trap, whatever its code, never
+ *   "; module: wrong"   a check the IR makes before a call of the run time,
+ *                       or before an access of memory, is missing (lir_run
+ *                       calls the module wrong): Meri must stop with a
+ *                       trap, whatever its code, or with MERI_BADMEM, never
  *                       crash nor go on
  * The program is compiled, disassembled (to nothing) and run.
  */
@@ -41,6 +44,16 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+/* under AddressSanitizer, the handler of the faults of a run (meri_run:
+   an access of nil is MERI_BADMEM) is Meri's, not the sanitizer's */
+#if defined(__SANITIZE_ADDRESS__)
+const char *__asan_default_options(void);
+const char *__asan_default_options(void)
+{
+    return "allow_user_segv_handler=1";
+}
+#endif
 
 static int failures, cases, skipped;
 
@@ -86,6 +99,8 @@ typedef struct {
     char link[128];   /* the linking must fail with this in its message */
     char report[256]; /* meri_report must write this line, if not empty */
     char never[32];   /* no instruction of the bytecode is this one */
+    char msg[256];    /* the words of the exception not caught */
+    bool has_msg;
     uint64_t strings, refs;
     unsigned line, col;
 } expect;
@@ -123,6 +138,10 @@ static void header(const char *text, expect *e)
             e->status = MERI_UNREACHABLE;
         } else if (!strncmp(p, "; stops: badcall", 16)) {
             e->status = MERI_BADCALL;
+        } else if (!strncmp(p, "; message: ", 11) && n - 11 < sizeof(e->msg)) {
+            memcpy(e->msg, p + 11, n - 11);
+            e->msg[n - 11] = 0;
+            e->has_msg = true;
         } else if (!strncmp(p, "; never: ", 9) && n - 9 < sizeof(e->never)) {
             memcpy(e->never, p + 9, n - 9);
             e->never[n - 9] = 0;
@@ -219,8 +238,9 @@ static void one(const char *path)
         meri_run(p, "main", &env, &r);
         fclose(o);
         o = NULL;
-        CHECK(r.status == e.status, "%s: ended with status %d, expected %d",
-              path, r.status, e.status);
+        CHECK(r.status == e.status || (e.any_trap && r.status == MERI_BADMEM),
+              "%s: ended with status %d, expected %d", path, r.status,
+              e.status);
         CHECK(e.status != MERI_TRAP || e.any_trap || r.code == e.value,
               "%s: trap %" PRId64 ", expected %" PRId64, path, r.code, e.value);
         CHECK(!e.has_result || (int64_t)r.ret == e.value,
@@ -232,6 +252,10 @@ static void one(const char *path)
         CHECK(!e.has_strings || r.live_strings == e.strings,
               "%s: %" PRIu64 " strings alive at the end, expected %" PRIu64,
               path, r.live_strings, e.strings);
+        CHECK(!e.has_msg || (r.msg && r.msglen == strlen(e.msg) &&
+                             !memcmp(r.msg, e.msg, r.msglen)),
+              "%s: the words \"%.*s\", expected \"%s\"", path,
+              r.msg ? (int)r.msglen : 0, r.msg ? r.msg : "", e.msg);
         CHECK(!e.has_refs || r.live_refs == e.refs,
               "%s: %" PRIu64 " BigInts alive at the end, expected %" PRIu64,
               path, r.live_refs, e.refs);

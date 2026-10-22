@@ -24,6 +24,8 @@
 
 #include <errno.h>
 #include <math.h>
+#include <setjmp.h>
+#include <signal.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
@@ -1028,11 +1030,17 @@ op_GADDR:
 op_FADDR:
     RA = (uint64_t)(uintptr_t)&p->fns[MERI_W_BX(w)];
     NEXT;
-op_MEMCPY:
+op_MEMCPY: /* a length the IR did not check could run over memory */
+    ip = pc - 1;
+    if (meri_mem_wrong(RA, RC) || meri_mem_wrong(RB, RC))
+        goto bad_mem;
     memmove((void *)(uintptr_t)MERI_ADDR(RA),
             (const void *)(uintptr_t)MERI_ADDR(RB), (size_t)RC);
     NEXT;
 op_MEMSET:
+    ip = pc - 1;
+    if (meri_mem_wrong(RA, RC))
+        goto bad_mem;
     memset((void *)(uintptr_t)MERI_ADDR(RA), (int)(uint8_t)RB, (size_t)RC);
     NEXT;
 op_RC: {
@@ -1043,6 +1051,8 @@ op_RC: {
     size = p->m->types[x].size;
     if (n < 0 || (n && size > UINT64_MAX / (uint64_t)n))
         TRAP(LIMBA_TRAP_RANGE);
+    if (meri_mem_wrong(RA, (uint64_t)n * size))
+        goto bad_mem;
     meri_state_rc(s, RA, x, (uint64_t)n, MERI_W_C(w) ? -1 : 1);
     NEXT;
 }
@@ -1570,6 +1580,9 @@ op_MEMCPYK: {
     uint8_t *d = (uint8_t *)(uintptr_t)MERI_ADDR(RA);
     const uint8_t *q = (const uint8_t *)(uintptr_t)MERI_ADDR(RB);
     uint64_t a0, a1;
+    ip = pc - 1;
+    if (meri_mem_wrong(RA, MERI_W_C(w)) || meri_mem_wrong(RB, MERI_W_C(w)))
+        goto bad_mem;
     switch (MERI_W_C(w)) {
     case 8:
         memcpy(&a0, q, 8);
@@ -1589,6 +1602,9 @@ op_MEMCPYK: {
 op_MEMSETK: {
     uint8_t *d = (uint8_t *)(uintptr_t)MERI_ADDR(RA);
     uint64_t v = 0x0101010101010101ull * (uint8_t)RB;
+    ip = pc - 1;
+    if (meri_mem_wrong(RA, MERI_W_C(w)))
+        goto bad_mem;
     switch (MERI_W_C(w)) {
     case 8:
         memcpy(d, &v, 8);
@@ -1796,6 +1812,9 @@ op_UNREACH:
     r->status = MERI_UNREACHABLE;
     goto stop;
 
+bad_mem: /* a wrong module (meri.h) */
+    r->status = MERI_BADMEM;
+    goto stop;
 rt_fail: /* a function of the runtime stopped: a trap may be caught */
     if (s->status == MERI_TRAP)
         TRAP(s->code);
@@ -1858,6 +1877,49 @@ uncaught: /* the exception ends the run */
 #undef JUMP_IF
 }
 
+/* a fault while the program runs, in the first 64 KiB: an access the IR
+   should have checked (nil), MERI_BADMEM, never a crash. Any other fault,
+   or one out of a run, goes to the handler there was before */
+static __thread sigjmp_buf *fault_jump;
+static struct sigaction fault_old[2]; /* SIGSEGV, SIGBUS */
+
+static void on_fault(int sig, siginfo_t *si, void *ctx)
+{
+    (void)ctx;
+    if (fault_jump && (uintptr_t)si->si_addr < MERI_LOW_MEM)
+        siglongjmp(*fault_jump, 1);
+    /* not ours: the action before, and the access again */
+    sigaction(sig, &fault_old[sig == SIGBUS], NULL);
+}
+
+/* run, with on_fault set for the time of it */
+static __attribute__((noinline)) void
+run_guarded(meri_state *s, const meri_fn *entry, void **globals, uint64_t *regs,
+            uint8_t *slotmem, size_t nslotmem, frame *frames, meri_result *r)
+{
+    sigjmp_buf jump;
+    struct sigaction sa;
+
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_sigaction = on_fault;
+    sa.sa_flags = SA_SIGINFO | SA_NODEFER;
+    sigemptyset(&sa.sa_mask);
+    sigaction(SIGSEGV, &sa, &fault_old[0]);
+    sigaction(SIGBUS, &sa, &fault_old[1]);
+    if (sigsetjmp(jump, 1)) {
+        /* the run left from on_fault: its state is lost with it */
+        r->status = MERI_BADMEM;
+        r->code = 0;
+        r->pos = 0;
+    } else {
+        fault_jump = &jump;
+        run(s, entry, globals, regs, slotmem, nslotmem, frames, r);
+    }
+    fault_jump = NULL;
+    sigaction(SIGSEGV, &fault_old[0], NULL);
+    sigaction(SIGBUS, &fault_old[1], NULL);
+}
+
 void meri_run(const meri_program *p, const char *entry, const meri_env *env,
               meri_result *r)
 {
@@ -1890,7 +1952,8 @@ void meri_run(const meri_program *p, const char *entry, const meri_env *env,
         r->status = MERI_TRAP;
         r->code = LIMBA_TRAP_NOMEM;
     } else {
-        run(&s, &p->fns[fid], globals, regs, slotmem, nslotmem, frames, r);
+        run_guarded(&s, &p->fns[fid], globals, regs, slotmem, nslotmem, frames,
+                    r);
     }
     if (regs)
         munmap(regs, REGS * sizeof(uint64_t));

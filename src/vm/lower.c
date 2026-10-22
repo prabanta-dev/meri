@@ -3283,6 +3283,7 @@ static void function(meri_program *p, uint32_t fid, meri_diag *d)
             if (npend)
                 fail(&l, "strings released past the end of block %" PRIu32, b);
         }
+        fn->pads_at = l.ncode;
         emit_pads(&l);
         for (i = 0; i < l.nfix && !l.failed; i++) {
             uint32_t to = l.fix[i].block == LIMBA_NONE
@@ -3310,6 +3311,8 @@ static void function(meri_program *p, uint32_t fid, meri_diag *d)
         emit(&l, meri_abc(MERI_OP_UNREACH, 0, 0, 0));
     }
     exc_table(&l, fn);
+    if (!body)
+        fn->pads_at = l.ncode;
     fn->nregs = l.outgoing + l.maxargs;
     fn->code = l.code;
     fn->ncode = l.ncode;
@@ -3454,6 +3457,20 @@ bool meri_compile_end(meri_program *p, meri_diag *d)
                      "function %" PRIu32 " has a body never given", i);
             p->failed = true;
         }
+    /* the program whole: a function out of the set "under a handler"
+       (progetto_ir.md § 11i) has no handler above it, so an exception
+       stops the run there. Its table and its pads go: its bytecode is
+       that of a module without exceptions */
+    for (i = 0; i < p->nfns && !p->failed; i++) {
+        meri_fn *fn = &p->fns[i];
+        if (!fn->nexc || limba_module_handled(p->m, i))
+            continue;
+        free(fn->exc_at);
+        free(fn->exc_pad);
+        fn->exc_at = fn->exc_pad = NULL;
+        fn->nexc = 0;
+        fn->ncode = fn->pads_at;
+    }
     p->ended = !p->failed;
     return p->ended;
 }

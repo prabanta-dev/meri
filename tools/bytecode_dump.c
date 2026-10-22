@@ -7,9 +7,10 @@
  *     bytecode_dump FILE.lir
  *
  * For each function, as meri_compile makes it: code, positions,
- * constants, window, slots and the slots to release; then the constant
- * strings. A module refused, or not compiled, writes its message instead:
- * the same for the same IR, so it compares as well.
+ * constants, window, slots and the slots to release, the table of the
+ * pads if it has one (vm.h); then the constant strings. A module refused, or
+ * not compiled, writes its message instead: the same for the same IR, so it
+ * compares as well.
  */
 #include "limba/ir.h"
 #include "vm/vm.h"
@@ -79,6 +80,13 @@ int main(int argc, char **argv)
         w(&fn->nrel_slots, 4);
         w(fn->rel_slots, fn->nrel_slots * 4ul);
         w(fn->rel_types, fn->nrel_slots * 4ul);
+        if (fn->nexc) { /* the table of the pads: only where there is one,
+                           so that a module without exceptions dumps the
+                           bytes it dumped before them */
+            w(&fn->nexc, 4);
+            w(fn->exc_at, fn->nexc * 4ul);
+            w(fn->exc_pad, fn->nexc * 4ul);
+        }
     }
     w(&p->nstrs, 4);
     w(p->str_ids, p->nstrs * 4ul);

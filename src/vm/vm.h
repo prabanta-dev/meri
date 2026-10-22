@@ -44,6 +44,7 @@ typedef struct {
        the words that may raise are ever looked up */
     uint32_t *exc_at, *exc_pad;
     uint32_t nexc;
+    uint32_t pads_at; /* the first word of the pads: ncode for none */
 } meri_fn;
 
 struct meri_program {

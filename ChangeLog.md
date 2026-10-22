@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- The set "under a handler" of Limba (`limba_module_handled`), asked at
+  the end of the compilation: a function out of it has no table and no
+  pads, an exception stops the run there. A module without exceptions has
+  the bytecode it had before them.
+- A memory access the IR should have checked first (nil, or a length past
+  the end of memory) is the new status `MERI_BADMEM`, "wrong module",
+  never a crash: checked in `memcpy`, `memset`, `io_read`, `io_write` and
+  the retains and releases of a count; a fault in the first 64 KiB of a
+  load or a store, caught while the program runs. `meri` and `test_vm`
+  let it work under AddressSanitizer too.
+- `test_vm`: "; message:" for the words of an exception not caught.
+
 - `par_for` in sequence (progetto_ir.md § 11i, R2): every index from lo
   to hi runs, then the exception of the lowest index, if one left the
   body, leaves `par_for`; the others are dropped. Out of memory and stack

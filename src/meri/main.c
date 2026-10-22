@@ -99,6 +99,16 @@ static bool parse_size(const char *s, uint64_t *out)
     return true;
 }
 
+/* under AddressSanitizer, the handler of the faults of a run (meri_run:
+   an access of nil is MERI_BADMEM) is Meri's, not the sanitizer's */
+#if defined(__SANITIZE_ADDRESS__)
+const char *__asan_default_options(void);
+const char *__asan_default_options(void)
+{
+    return "allow_user_segv_handler=1";
+}
+#endif
+
 int main(int argc, char **argv)
 {
     const char *input = NULL;

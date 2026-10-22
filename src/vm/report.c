@@ -68,6 +68,9 @@ int meri_report(const limba_module *m, const meri_result *r, FILE *err)
     case MERI_BADENTRY:
         what = "no function main without parameters";
         break;
+    case MERI_BADMEM:
+        what = "wrong module: memory accessed with no check of nil";
+        break;
     }
     if (what && !wn && r->status != MERI_TRAP)
         wn = strlen(what);
