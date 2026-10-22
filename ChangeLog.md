@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- `raise`: an exception no handler catches stops the run, worded as the
+  reference interpreter words it: the name the module gives its identity,
+  its message, the position of the raise (`meri_result.msg`). A trap the
+  module names carries the name too; an identity with no name nor words
+  is "exception N". Modules with handlers or `par_for` are still refused.
+
 - IR version 8 of Limba. A global's data may repeat a block of bytes
   (fills), written before its relocations. A module with exceptions (a
   protected block, `raise`, `par_for`, a table of exceptions) is refused,

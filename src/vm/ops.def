@@ -289,3 +289,7 @@ MERI_OP(TRAPW, "trapw", MERI_FMT_AKX)       /* the code is K[X] */
 MERI_OP(CHECKW, "checkw", MERI_FMT_AKX)     /* the trap K[X] if R[A] is 0 */
 MERI_OP(CHKLIVEW, "chklivew", MERI_FMT_AKX) /* ptr_live R[A], else K[X] */
 MERI_OP(CHKNLW, "chknlw", MERI_FMT_AKX)     /* the traps K[X], K[X + 1] */
+/* the exception R[A] (its identity, i32), at the position R[B] (an index
+   of the positions of the module, 0 for none), with the message R[C] (a
+   str, retained for the exception): progetto_ir.md § 11i */
+MERI_OP(RAISE, "raise", MERI_FMT_ABC)

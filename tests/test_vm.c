@@ -11,6 +11,8 @@
  *   "; result: <n>"     what main returns
  *   "; trap: <code>"    the run-time error it stops with
  *   "; at: <l>:<c>"     where (tests/vm only)
+ *   "; report: <line>"  what meri_report writes, without its newline
+ *                       (tests/vm only)
  *   "; strings: <n>"    strings still alive at the end (tests/vm only):
  *                       a missed release leaves one more
  *   "; refs: <n>"       the same for the numbers of BigInt
@@ -18,9 +20,10 @@
  *                       and nothing runs
  *   "; memory: broken"  a rule of the strings in memory broken: the first
  *                       cut of Meri does not check them, so it is skipped
- * A module with exceptions (progetto_ir.md § 11i: a protected block, a
- * raise, a par_for, a table of exceptions) must be refused with the
- * message of lower.c, until the engine runs them: counted as refused.
+ * A module with handlers or a par_for (progetto_ir.md § 11i) must be
+ * refused with the message of lower.c, until the engine runs them:
+ * counted as refused. A raise no handler catches is run: "; trap: <n>"
+ * is then its identity.
  *   "; module: wrong"   a check the IR makes before a call of the run time
  *                       is missing (lir_run calls the module wrong): Meri
  *                       must stop with a trap, whatever its code, never
@@ -79,7 +82,8 @@ typedef struct {
     int status;
     int64_t value; /* the trap code or the result */
     bool has_result, has_at, has_strings, has_refs, skip, any_trap;
-    char link[128]; /* the linking must fail with this in its message */
+    char link[128];   /* the linking must fail with this in its message */
+    char report[256]; /* meri_report must write this line, if not empty */
     uint64_t strings, refs;
     unsigned line, col;
 } expect;
@@ -109,6 +113,10 @@ static void header(const char *text, expect *e)
         } else if (!strncmp(p, "; link: ", 8) && n - 8 < sizeof(e->link)) {
             memcpy(e->link, p + 8, n - 8);
             e->link[n - 8] = 0;
+        } else if (!strncmp(p, "; report: ", 10) &&
+                   n - 10 < sizeof(e->report)) {
+            memcpy(e->report, p + 10, n - 10);
+            e->report[n - 10] = 0;
         } else if (!strncmp(p, "; refs: ", 8)) {
             e->refs = strtoull(p + 8, NULL, 10);
             e->has_refs = true;
@@ -126,22 +134,20 @@ static void header(const char *text, expect *e)
     }
 }
 
-/* the module uses exceptions (as raises() of lower.c sees them) */
+/* the module has what the engine does not run yet (as raises() of
+   lower.c sees it) */
 static bool excepts(const limba_module *m)
 {
     uint32_t i, b, k;
 
-    if (m->nexcs)
-        return true;
     for (i = 0; i < m->nfuncs; i++) {
         const limba_func *f = &m->funcs[i];
         for (b = 0; b < f->nblocks; b++)
             if (f->blocks[b].handler)
                 return true;
         for (k = 0; k < f->ninsts; k++)
-            if (f->insts[k].op == LIMBA_OP_RAISE ||
-                (f->insts[k].op == LIMBA_OP_CALLRT &&
-                 f->insts[k].imm == LIMBA_RT_PAR_FOR))
+            if (f->insts[k].op == LIMBA_OP_CALLRT &&
+                f->insts[k].imm == LIMBA_RT_PAR_FOR)
                 return true;
     }
     return false;
@@ -238,6 +244,21 @@ static void one(const char *path)
         CHECK(!e.has_refs || r.live_refs == e.refs,
               "%s: %" PRIu64 " BigInts alive at the end, expected %" PRIu64,
               path, r.live_refs, e.refs);
+        if (e.report[0]) {
+            char *rep = NULL;
+            size_t replen = 0;
+            FILE *rs = open_memstream(&rep, &replen);
+            if (rs) {
+                meri_report(m, &r, rs);
+                fclose(rs);
+            }
+            CHECK(rep && replen == strlen(e.report) + 1 &&
+                      !memcmp(rep, e.report, replen - 1) &&
+                      rep[replen - 1] == '\n',
+                  "%s: reported \"%.*s\", expected \"%s\"", path,
+                  rep ? (int)replen : 0, rep ? rep : "", e.report);
+            free(rep);
+        }
         if (e.has_at) {
             const limba_pos *ps =
                 r.pos && r.pos <= m->npos ? &m->pos[r.pos - 1] : NULL;

@@ -57,6 +57,10 @@ struct meri_program {
     void **libs; /* the libraries opened */
     limba_id *libnames;
     uint32_t nlibs;
+    /* the message of the last exception not caught (meri_result.msg),
+       malloc'd; written by meri_run through a program it may not change
+       otherwise (allocated by Meri, so never const in itself) */
+    char *excmsg;
 };
 
 #endif

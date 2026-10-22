@@ -1226,6 +1226,22 @@ op_JFLE:
 op_TRAP:
     ip = pc - 1;
     TRAP((int64_t)k[MERI_W_BX(w)]);
+op_RAISE: { /* no handler yet: the exception stops the run (§ 11i) */
+    const meri_str *t = meri_str_of(RC);
+    char *copy = t->len ? malloc(t->len) : NULL;
+
+    ip = pc - 1;
+    if (copy)
+        memcpy(copy, t->data, t->len);
+    free(p->excmsg);
+    ((meri_program *)p)->excmsg = copy; /* allocated by Meri: see vm.h */
+    r->status = MERI_TRAP;
+    r->code = (int64_t)(int32_t)RA;
+    r->msg = copy;
+    r->msglen = copy ? t->len : 0;
+    r->pos = (uint32_t)RB;
+    return;
+}
 op_CHECK:
     ip = pc - 1;
     if (!RA)
@@ -1697,6 +1713,8 @@ void meri_run(const meri_program *p, const char *entry, const meri_env *env,
                                                          : SLOT_MAX);
 
     memset(r, 0, sizeof(*r));
+    free(p->excmsg); /* the message of the run before */
+    ((meri_program *)p)->excmsg = NULL;
     if (!p->ended || fid == LIMBA_NONE || p->fns[fid].nparams != 0) {
         r->status = MERI_BADENTRY;
         return;

@@ -1,6 +1,5 @@
 ; result: 0
-; a table of exceptions and nothing that raises: refused until the engine
-; runs exceptions (the check of meri_compile_end alone)
+; a table of exceptions and nothing that raises: run as any module
 exception 1000 "Unused"
 
 func @main : fn() -> i64 {

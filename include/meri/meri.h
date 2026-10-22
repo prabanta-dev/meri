@@ -100,6 +100,12 @@ typedef struct {
        and in blocks never freed, or a missed release) */
     uint64_t live_strings;
     uint64_t live_refs; /* the same for the numbers of BigInt */
+    /* an exception raised by the program (raise) that no handler caught:
+       its message (msglen bytes, not terminated), valid until the program
+       is run again or freed; NULL for a trap of the engine, whose words
+       are those of the module or of traps.def */
+    const char *msg;
+    size_t msglen;
 } meri_result;
 
 typedef struct {

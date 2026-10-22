@@ -2673,6 +2673,10 @@ static void inst_body(L *l, uint32_t id, uint32_t next)
     case LIMBA_F_TRAP:
         emit_k(l, MERI_OP_TRAP, MERI_OP_TRAPW, 0, konst(l, (uint64_t)in->imm));
         return;
+    case LIMBA_F_RAISE: /* identity, position, message */
+        emit(l, meri_abc(MERI_OP_RAISE, use(l, o[0], 0), use(l, o[1], 1),
+                         use(l, o[2], 2)));
+        return;
     case LIMBA_F_CHECK:
         if (l->gone && l->gone[id])
             return; /* done by CHKLIVE */
@@ -2869,9 +2873,9 @@ static bool registers(L *l, uint32_t nparams)
     return true;
 }
 
-/* exceptions in the body of f (progetto_ir.md § 11i): a protected block,
-   a raise, a par_for. The engine does not run them yet: such a module is
-   refused, never run wrong */
+/* what of the exceptions the engine does not run yet (progetto_ir.md
+   § 11i) in the body of f: a protected block, a par_for. Such a module is
+   refused, never run wrong; a raise no handler catches stops the run */
 static bool raises(const limba_func *f)
 {
     uint32_t b, i;
@@ -2880,9 +2884,8 @@ static bool raises(const limba_func *f)
         if (f->blocks[b].handler)
             return true;
     for (i = 0; i < f->ninsts; i++)
-        if (f->insts[i].op == LIMBA_OP_RAISE ||
-            (f->insts[i].op == LIMBA_OP_CALLRT &&
-             f->insts[i].imm == LIMBA_RT_PAR_FOR))
+        if (f->insts[i].op == LIMBA_OP_CALLRT &&
+            f->insts[i].imm == LIMBA_RT_PAR_FOR)
             return true;
     return false;
 }
@@ -3179,11 +3182,6 @@ bool meri_compile_end(meri_program *p, meri_diag *d)
         p->failed = true;
         return false;
     }
-    if (p->m->nexcs) { /* a table of exceptions: § 11i, not run yet */
-        snprintf(d->msg, sizeof(d->msg), "%s", MERI_NO_EXCEPTIONS);
-        p->failed = true;
-        return false;
-    }
     /* those never given: declared only (their bodies, if any, gone) */
     for (i = 0; i < p->nfns && !p->failed; i++)
         if (!p->fns[i].code && !p->m->funcs[i].nblocks)
@@ -3235,5 +3233,6 @@ void meri_program_free(meri_program *p)
     free(p->strs);
     free(p->str_ids);
     free(p->holds_str);
+    free(p->excmsg);
     free(p);
 }

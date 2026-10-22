@@ -32,12 +32,15 @@ void meri_flush(FILE *out, meri_result *r)
     }
 }
 
-/* a trap of traps.def is worded by the module: its language as the
-   prefix, its text or that of traps.def; everything else is Meri's own */
+/* a trap, or an exception no handler caught (progetto_ir.md § 11i), is
+   worded as the reference interpreter words it: the language of the
+   module as the prefix, the name the module gives the identity, the
+   message (raised with it, or the text of the module or of traps.def for
+   a trap), the position; everything else is Meri's own */
 int meri_report(const limba_module *m, const meri_result *r, FILE *err)
 {
-    const char *what = NULL, *prefix = "meri";
-    size_t wn = 0, pn = 4;
+    const char *what = NULL, *prefix = "meri", *name = NULL;
+    size_t wn = 0, pn = 4, nn = 0;
 
     switch (r->status) {
     case MERI_OK:
@@ -45,8 +48,12 @@ int meri_report(const limba_module *m, const meri_result *r, FILE *err)
     case MERI_HALT:
         return (int)r->code;
     case MERI_TRAP:
-        what = limba_trap_message(m, r->code, &wn);
-        if (what && m->language != LIMBA_NONE)
+        name = limba_exception_name(m, r->code, &nn);
+        what = r->msg;
+        wn = r->msglen;
+        if (!what || (!wn && !name)) /* a trap, or raised with no words */
+            what = limba_trap_message(m, r->code, &wn);
+        if (m->language != LIMBA_NONE)
             prefix = limba_str(m, m->language, &pn);
         break;
     case MERI_UNREACHABLE:
@@ -62,12 +69,20 @@ int meri_report(const limba_module *m, const meri_result *r, FILE *err)
         what = "no function main without parameters";
         break;
     }
-    if (what && !wn)
+    if (what && !wn && r->status != MERI_TRAP)
         wn = strlen(what);
-    if (what)
+    if (name) {
+        fprintf(err, "%.*s: %.*s", (int)pn, prefix, (int)nn, name);
+        if (what && wn)
+            fprintf(err, ": %.*s", (int)wn, what);
+    } else if (what && wn) {
         fprintf(err, "%.*s: %.*s", (int)pn, prefix, (int)wn, what);
-    else
+    } else if (r->status == MERI_TRAP) {
+        fprintf(err, "%.*s: exception %lld", (int)pn, prefix,
+                (long long)r->code);
+    } else {
         fprintf(err, "meri: run-time error %lld", (long long)r->code);
+    }
     if (r->pos && r->pos <= m->npos) {
         const limba_pos *p = &m->pos[r->pos - 1];
         size_t n;
