@@ -18,14 +18,21 @@ teams as CTO and CIO.
 Meri is part of Prabanta (https://github.com/prabanta-dev), a family of
 tools written in C with no dependencies beyond the C library:
 
-  - Limba, the front end of the compiler for Luxia, an extended Pascal
-    with the rigour of Ada (https://github.com/prabanta-dev/limba);
-  - Meri, the register-based virtual machine that runs it, with a
-    bytecode compiler, ahead-of-time and just-in-time compilation;
-  - Janas, tools for artificial intelligence, whose aim is to lower the
-    hardware that private AI needs (https://github.com/prabanta-dev/janas);
-  - Napa, for web infrastructure, and Prama, for high-performance
-    computing, both still being defined.
+  - Limba, what every language of the family shares: the intermediate
+    representation, its optimiser and a reference interpreter
+    (https://github.com/prabanta-dev/limba);
+  - Meri, the register-based virtual machine that runs the IR, with a
+    bytecode compiler, ahead-of-time and just-in-time compilation
+    (https://github.com/prabanta-dev/meri);
+  - Luxia, an extended Pascal with the rigour of Ada: the language, its
+    front end and the program luxia, which runs on Meri
+    (https://github.com/prabanta-dev/luxia).
+
+The family also has Janas, tools for artificial intelligence, whose aim is
+to lower the hardware that private AI needs
+(https://github.com/prabanta-dev/janas), and Napa, for web
+infrastructure, and Prama, for high-performance computing, both still
+being defined.
 
 Other public projects by the same author, in Free Pascal:
 
