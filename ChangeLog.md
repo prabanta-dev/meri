@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- The two tools of the checks read nothing from the environment:
+  `tools/sorvegliato.sh` takes its work directory and thresholds as options
+  (`-d`, `-m`, `-g`, in place of `SORV_TMP`, `SORV_TMP_MIB`,
+  `SORV_FREE_GIB`), `tools/identity.sh` its work directory and the places
+  of Limba and Luxia (`-w`, `-l`, `-x`, in place of `IDENT_DIR`,
+  `LIMBA_DIR`, `LUXIA_DIR`); the home directory comes from the user
+  database. The guard no longer lets the shell's notice of a program
+  killed by a signal (an abort) into the standard error.
+
 - Every program of Meri (`meri`, `bytecode_dump`, the tests and the
   fuzzing target) gives its name to Limba with `limba_set_program`, as
   Limba asks from `d2c8c2d` on: its own messages carry that name.

@@ -5,8 +5,14 @@
 # The proof that a change leaves the bytecode as it was: the fixed step of
 # every change to Meri that must not touch it.
 #
-#   tools/identity.sh DIR        hashes of every module into DIR/hash
+#   tools/identity.sh [-w WORK] [-l LIMBA] [-x LUXIA] DIR
+#                                hashes of every module into DIR/hash
 #   tools/identity.sh -c A B     the modules whose hashes differ
+#
+# WORK is where the modules are made (tmp/meri/ident in the home directory
+# of the user by default), LIMBA and LUXIA where those projects are
+# (../Limba and ../Luxia next to Meri by default). Nothing comes from the
+# environment: another session could export a variable.
 #
 # Before the change, ./build.sh release and tools/identity.sh before; after
 # it, the same into after; then -c before after must list nothing. A
@@ -17,20 +23,31 @@
 # made into IR by luxia --emit=lir at -O0 and -O1; the benchmarks of
 # Luxia (with those that call C, in benchmarks/c), at -O0 and -O1; the .lit of tests/vm and of Limba's tests/eval,
 # through limba. Their .lir are made once, in
-# $IDENT_DIR/lir (~/tmp/meri/ident/lir by default), and reused: before and
+# WORK/lir, and reused: before and
 # after compare the same IR. For each one, the hash of the bytecode as
 # bytes (bytecode_dump) and of meri --disasm. Every program runs under
 # tools/sorvegliato.sh.
 set -u
 
 MERI_DIR=$(cd "$(dirname "$0")/.." && pwd)
-LIMBA_DIR="${LIMBA_DIR:-$MERI_DIR/../Limba}"
+LIMBA_DIR="$MERI_DIR/../Limba"
+LUXIA_DIR="$MERI_DIR/../Luxia"
+WORK="$(getent passwd "$(id -u)" | cut -d: -f6)/tmp/meri/ident"
+if [ "${1:-}" != -c ]; then
+    while [ $# -gt 0 ]; do
+        case "$1" in
+        -w) WORK="$2"; shift 2 ;;
+        -l) LIMBA_DIR="$2"; shift 2 ;;
+        -x) LUXIA_DIR="$2"; shift 2 ;;
+        -*) echo "identity: unknown option: $1" >&2; exit 2 ;;
+        *) break ;;
+        esac
+    done
+fi
 LB="$LIMBA_DIR/bin/x86_64-linux"
-LUXIA_DIR="${LUXIA_DIR:-$MERI_DIR/../Luxia}"
 XB="$LUXIA_DIR/bin/x86_64-linux"
 MB="$MERI_DIR/bin/x86_64-linux"
 SORV="$MERI_DIR/tools/sorvegliato.sh"
-WORK="${IDENT_DIR:-$HOME/tmp/meri/ident}"
 LIR="$WORK/lir"
 
 if [ "${1:-}" = -c ]; then
@@ -49,7 +66,10 @@ if [ "${1:-}" = -c ]; then
                    d, o > "/dev/stderr" }' "$2/hash" "$3/hash"
     exit 1
 fi
-[ $# -eq 1 ] || { echo "usage: identity.sh DIR | -c A B" >&2; exit 2; }
+[ $# -eq 1 ] || {
+    echo "usage: identity.sh [-w WORK] [-l LIMBA] [-x LUXIA] DIR | -c A B" >&2
+    exit 2
+}
 OUT="$1"
 for x in "$XB/lx_gen" "$XB/luxia" "$LB/limba" "$MB/meri" \
     "$MB/bytecode_dump"; do
