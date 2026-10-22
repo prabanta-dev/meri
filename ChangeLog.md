@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- IR version 8 of Limba. A global's data may repeat a block of bytes
+  (fills), written before its relocations. A module with exceptions (a
+  protected block, `raise`, `par_for`, a table of exceptions) is refused,
+  "exceptions are not supported yet", until the engine runs them;
+  `test_vm` counts the cases of Limba that have them as refused.
+
 - IR version 7 of Limba: a global may start with bytes and relocations
   (the address of a function or of a global, an immortal string); all the
   globals are made first, then filled, so that one may hold the address of

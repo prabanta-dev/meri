@@ -1,0 +1,22 @@
+; output: 1
+; output: 2
+; result: 0
+; a par_for whose body raises nothing, no table: refused until the engine
+; runs exceptions (each clause of raises() in lower.c alone)
+func @body : fn(ptr, i64) -> void {
+b0(v0: ptr, v1: i64):
+  call.rt void print_i64(v1)
+  call.rt void print_nl()
+  ret
+}
+
+func @main : fn() -> i64 {
+b0:
+  v0 = faddr ptr @body
+  v1 = null ptr
+  v2 = iconst i64 1
+  v3 = iconst i64 2
+  call.rt void par_for(v0, v1, v2, v3)
+  v4 = iconst i64 0
+  ret v4
+}

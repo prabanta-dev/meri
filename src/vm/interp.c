@@ -406,7 +406,7 @@ static void globals_free(const limba_module *m, void **g)
     free(g);
 }
 
-/* the bytes and relocations of a LIMBA_INIT_DATA global at p, every
+/* the bytes, fills and relocations of a LIMBA_INIT_DATA global at p, every
    global already there (a relocation may name one that comes after);
    false when memory is exhausted */
 static bool global_data(meri_state *s, void **g, void *p,
@@ -417,6 +417,21 @@ static bool global_data(meri_state *s, void **g, void *p,
 
     if (d->len)
         memcpy(p, d->bytes, d->len);
+    for (k = 0; k < d->nfills; k++) {
+        /* len bytes count times from offset: the block once, then what is
+           written so far, doubling (as lir_run) */
+        const limba_fill *f = &d->fills[k];
+        uint8_t *at = (uint8_t *)p + f->offset;
+        uint64_t total = (uint64_t)f->len * f->count, done = f->len;
+
+        memcpy(at, f->bytes, f->len);
+        while (done < total) {
+            uint64_t n = done < total - done ? done : total - done;
+
+            memcpy(at + done, at, n);
+            done += n;
+        }
+    }
     for (k = 0; k < d->nrelocs; k++) {
         const limba_reloc *rl = &d->relocs[k];
         uint64_t v = 0;

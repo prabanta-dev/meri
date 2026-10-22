@@ -18,6 +18,9 @@
  *                       and nothing runs
  *   "; memory: broken"  a rule of the strings in memory broken: the first
  *                       cut of Meri does not check them, so it is skipped
+ * A module with exceptions (progetto_ir.md § 11i: a protected block, a
+ * raise, a par_for, a table of exceptions) must be refused with the
+ * message of lower.c, until the engine runs them: counted as refused.
  *   "; module: wrong"   a check the IR makes before a call of the run time
  *                       is missing (lir_run calls the module wrong): Meri
  *                       must stop with a trap, whatever its code, never
@@ -35,7 +38,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-static int failures, cases, skipped;
+static int failures, cases, skipped, refused;
 
 #define CHECK(cond, ...)                                                       \
     do {                                                                       \
@@ -123,6 +126,27 @@ static void header(const char *text, expect *e)
     }
 }
 
+/* the module uses exceptions (as raises() of lower.c sees them) */
+static bool excepts(const limba_module *m)
+{
+    uint32_t i, b, k;
+
+    if (m->nexcs)
+        return true;
+    for (i = 0; i < m->nfuncs; i++) {
+        const limba_func *f = &m->funcs[i];
+        for (b = 0; b < f->nblocks; b++)
+            if (f->blocks[b].handler)
+                return true;
+        for (k = 0; k < f->ninsts; k++)
+            if (f->insts[k].op == LIMBA_OP_RAISE ||
+                (f->insts[k].op == LIMBA_OP_CALLRT &&
+                 f->insts[k].imm == LIMBA_RT_PAR_FOR))
+                return true;
+    }
+    return false;
+}
+
 static void one(const char *path)
 {
     size_t len;
@@ -156,6 +180,16 @@ static void one(const char *path)
         return;
     }
     p = meri_compile(m, &md);
+    if (excepts(m)) { /* refused, with its message, or a failure */
+        CHECK(!p && !strcmp(md.msg, "exceptions are not supported yet"),
+              "%s: a module with exceptions %s", path,
+              p ? "was compiled" : md.msg);
+        if (!p)
+            refused++;
+        meri_program_free(p);
+        limba_module_free(m);
+        return;
+    }
     if (!p) {
         CHECK(false, "%s: %s", path, md.msg);
         limba_module_free(m);
@@ -271,7 +305,8 @@ int main(void)
     limba_set_program("test_vm");
     dir("tests/vm");
     dir(MERI_LIMBA_DIR "/tests/eval");
-    printf("test_vm: %d cases, %d skipped, %d failures\n", cases, skipped,
-           failures);
+    printf("test_vm: %d cases, %d skipped, %d refused (exceptions), %d "
+           "failures\n",
+           cases, skipped, refused, failures);
     return failures ? 1 : 0;
 }

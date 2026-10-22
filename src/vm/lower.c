@@ -2869,6 +2869,26 @@ static bool registers(L *l, uint32_t nparams)
     return true;
 }
 
+/* exceptions in the body of f (progetto_ir.md § 11i): a protected block,
+   a raise, a par_for. The engine does not run them yet: such a module is
+   refused, never run wrong */
+static bool raises(const limba_func *f)
+{
+    uint32_t b, i;
+
+    for (b = 0; b < f->nblocks; b++)
+        if (f->blocks[b].handler)
+            return true;
+    for (i = 0; i < f->ninsts; i++)
+        if (f->insts[i].op == LIMBA_OP_RAISE ||
+            (f->insts[i].op == LIMBA_OP_CALLRT &&
+             f->insts[i].imm == LIMBA_RT_PAR_FOR))
+            return true;
+    return false;
+}
+
+#define MERI_NO_EXCEPTIONS "exceptions are not supported yet"
+
 static void function(meri_program *p, uint32_t fid, meri_diag *d)
 {
     const limba_func *f = &p->m->funcs[fid];
@@ -2879,6 +2899,11 @@ static void function(meri_program *p, uint32_t fid, meri_diag *d)
 
     fn->type = f->type;
     fn->nparams = p->m->types[f->type].count;
+    if (body && raises(f)) {
+        snprintf(d->msg, sizeof(d->msg), "%s", MERI_NO_EXCEPTIONS);
+        p->failed = true;
+        return;
+    }
     if (body && !str_ptrs_stay(&l)) {
         p->failed = true;
         return;
@@ -3151,6 +3176,11 @@ bool meri_compile_end(meri_program *p, meri_diag *d)
     }
     if (!know_types(p)) {
         snprintf(d->msg, sizeof(d->msg), "out of memory");
+        p->failed = true;
+        return false;
+    }
+    if (p->m->nexcs) { /* a table of exceptions: § 11i, not run yet */
+        snprintf(d->msg, sizeof(d->msg), "%s", MERI_NO_EXCEPTIONS);
         p->failed = true;
         return false;
     }
