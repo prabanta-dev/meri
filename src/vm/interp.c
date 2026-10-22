@@ -538,6 +538,18 @@ static uint8_t *align_up(uint8_t *p, uint64_t a, const uint8_t *end)
     return q < (uintptr_t)p || q > (uintptr_t)end ? NULL : (uint8_t *)q;
 }
 
+/* the words of trap code as a str of the run with one reference (those
+   of the module or of traps.def, "" for none); 0 when memory is
+   exhausted */
+static uint64_t trap_words(meri_state *s, int64_t code)
+{
+    size_t n = 0;
+    const char *t = limba_trap_message(s->p->m, code, &n);
+    meri_str *x = meri_state_str(s, t, t ? n : 0);
+
+    return x ? meri_str_value(x) : 0;
+}
+
 /* the position of a stop with none of its own, as lir_run gives it: the
    first call, from the innermost out, that has one */
 static uint32_t caller_pos(const frame *frames, size_t depth)
@@ -1177,6 +1189,50 @@ call: {
     pc = fn->code;
     NEXT;
 }
+op_PARFOR: { /* the body a function fn(ptr, i64) -> void, as lir_run */
+    const uint64_t *st = base + MERI_W_BX(w);
+    uintptr_t v = (uintptr_t)st[0], b0 = (uintptr_t)p->fns;
+    const limba_type *ty;
+    ip = pc - 1;
+    if (v < b0 || (v - b0) % sizeof(meri_fn) ||
+        (v - b0) / sizeof(meri_fn) >= p->nfns) {
+        r->status = MERI_BADCALL;
+        goto stop;
+    }
+    ty = &p->m->types[((const meri_fn *)v)->type];
+    if (ty->elem != LIMBA_T_VOID || ty->count != 2 ||
+        p->m->members[ty->first].type != LIMBA_T_PTR ||
+        p->m->members[ty->first + 1].type != LIMBA_T_I64) {
+        r->status = MERI_BADCALL;
+        goto stop;
+    }
+    base[MERI_W_BX(w) + 4] = (int64_t)st[2] > (int64_t)st[3] ? 2 : 0;
+    NEXT;
+}
+op_PARNEXT: { /* the next index, or the end */
+    uint64_t *st = base + MERI_W_BX(w);
+    ip = pc - 1;
+    if (st[4] & 2) {
+        if (!(st[4] & 1))
+            NEXT;
+        xcode = (int64_t)st[5]; /* the lowest index's */
+        xpos = (uint32_t)st[6];
+        xgiven = true;
+        xmsg = st[7];
+        xmade = true;
+        goto raise;
+    }
+    st[8] = st[1];
+    st[9] = st[2];
+    if (st[2] == st[3])
+        st[4] |= 2; /* hi may be the last i64 */
+    else
+        st[2]++;
+    callee = (const meri_fn *)(uintptr_t)st[0];
+    ca = MERI_W_BX(w) + 8;
+    pc = ip; /* back here when the body returns */
+    goto call;
+}
 op_CALLRT:
     ip = pc - 1;
     PROF_RT(MERI_W_BX(w));
@@ -1253,15 +1309,9 @@ op_RAISE: /* the str is the exception's: a reference of its own */
         goto uncaught; /* 7, 28 and their family: no handler, no finally */
     goto raise;
 op_CATCH: /* in a pad: the occurrence to the handler */
-    if (!xmade) {
-        size_t n = 0;
-        const char *t = limba_trap_message(p->m, xcode, &n);
-        meri_str *made = meri_state_str(s, t, t ? n : 0);
-        if (!made) {
-            ip = pc - 1;
-            TRAP(LIMBA_TRAP_NOMEM);
-        }
-        xmsg = meri_str_value(made);
+    if (!xmade && !(xmsg = trap_words(s, xcode))) {
+        ip = pc - 1;
+        TRAP(LIMBA_TRAP_NOMEM);
     }
     RA = (uint64_t)(int64_t)(int32_t)xcode;
     RB = (uint64_t)(int64_t)(int32_t)xpos;
@@ -1281,6 +1331,27 @@ op_UNWIND: /* in a pad: the frame left, the exception on from the call */
     slots = frames[depth].slots;
     slot_top = frames[depth].slot_top;
     k = fn->k;
+    if (MERI_W_OP(*pc) == MERI_OP_PARNEXT) {
+        /* out of the body of a par_for: the first one kept, the others
+           dropped, and the next index (lir_run words a trap now) */
+        uint64_t *st = base + MERI_W_BX(*pc);
+        if (st[4] & 1) {
+            if (xmade)
+                meri_state_release(s, xmsg);
+        } else {
+            if (!xmade && !(xmsg = trap_words(s, xcode))) {
+                ip = pc;
+                TRAP(LIMBA_TRAP_NOMEM);
+            }
+            st[4] |= 1;
+            st[5] = (uint64_t)xcode;
+            st[6] = xpos;
+            st[7] = xmsg;
+        }
+        xmsg = 0;
+        xmade = false;
+        NEXT;
+    }
     ip = pc - 1; /* the last word of the call */
     if (!xgiven && !xpos && fn->pos)
         xpos = fn->pos[ip - fn->code]; /* as lir_run: the call's */

@@ -1,0 +1,22 @@
+; stops: badcall
+; the body of a par_for that is not fn(ptr, i64) -> void: an error of the
+; engine (lir_run calls the module wrong), never caught
+func @body : fn(i64) -> void {
+b0(v0: i64):
+  ret
+}
+
+func @main : fn() -> i64 {
+b0:
+  v0 = faddr ptr @body
+  v1 = null ptr
+  v2 = iconst i64 1
+  br b1
+b1 handler b2:
+  call.rt void par_for(v0, v1, v2, v2)
+  v3 = iconst i64 0
+  ret v3
+b2(v4: i32, v5: i32, v6: str):
+  v7 = iconst i64 1
+  ret v7
+}

@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- `par_for` in sequence (progetto_ir.md § 11i, R2): every index from lo
+  to hi runs, then the exception of the lowest index, if one left the
+  body, leaves `par_for`; the others are dropped. Out of memory and stack
+  overflow stop at once. Two instructions, PARFOR and PARNEXT, with the
+  body called as any call, never a recursion of the interpreter; a body
+  that is not `fn(ptr, i64) -> void` is a bad call. No module is refused
+  for its exceptions any more.
+
 - Handlers: a trap of an instruction or of the run time, or an exception
   out of a call, in a protected block goes to its handler with its
   identity, position and message (the words of the module or of

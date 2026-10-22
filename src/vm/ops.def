@@ -303,3 +303,13 @@ MERI_OP(RAISE, "raise", MERI_FMT_ABC)
    from the call in the caller */
 MERI_OP(CATCH, "catch", MERI_FMT_ABC)
 MERI_OP(UNWIND, "unwind", MERI_FMT_NONE)
+/* par_for(body, env, lo, hi) in sequence (progetto_ir.md § 11i, R2), its
+   state from R[Bx] on: body, env, the next index, hi, flags (1: an
+   exception kept, 2: no index left), the identity, position and message
+   kept; the window of the body from R[Bx + 8]. PARFOR checks the body
+   (else BADCALL) and begins; PARNEXT calls it for the next index, the
+   call coming back to PARNEXT itself, and when none is left raises the
+   exception of the lowest index, if one left the body. UNWIND keeps the
+   first exception that leaves the body and drops the others */
+MERI_OP(PARFOR, "parfor", MERI_FMT_ABx)
+MERI_OP(PARNEXT, "parnext", MERI_FMT_ABx)

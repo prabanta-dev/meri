@@ -1,8 +1,7 @@
 ; output: 1
 ; output: 2
 ; result: 0
-; a par_for whose body raises nothing, no table: refused until the engine
-; runs exceptions (each clause of raises() in lower.c alone)
+; a par_for whose body raises nothing, no table: every index, in order
 func @body : fn(ptr, i64) -> void {
 b0(v0: ptr, v1: i64):
   call.rt void print_i64(v1)

@@ -964,6 +964,16 @@ static void call(L *l, uint32_t id, const limba_inst *in)
         }
         break;
     case LIMBA_OP_CALLRT:
+        if (in->imm == LIMBA_RT_PAR_FOR) {
+            /* its arguments, then the rest of its state, then the window
+               of the body: PARFOR (ops.def) */
+            outgoing(l, o, in->nops);
+            if (l->maxargs < 10)
+                l->maxargs = 10;
+            emit(l, meri_abx(MERI_OP_PARFOR, 0, a));
+            emit(l, meri_abx(MERI_OP_PARNEXT, 0, a));
+            return;
+        }
         if (in->nops &&
             call_n(l, MERI_OP_CALLRTN, a, (uint32_t)in->imm, o, in->nops, 0))
             break;
@@ -3136,22 +3146,6 @@ static void exc_table(L *l, meri_fn *fn)
     fn->nexc = l->nexc;
 }
 
-/* what of the exceptions the engine does not run yet (progetto_ir.md
-   § 11i) in the body of f: a par_for. Such a module is refused, never run
-   wrong */
-static bool raises(const limba_func *f)
-{
-    uint32_t i;
-
-    for (i = 0; i < f->ninsts; i++)
-        if (f->insts[i].op == LIMBA_OP_CALLRT &&
-            f->insts[i].imm == LIMBA_RT_PAR_FOR)
-            return true;
-    return false;
-}
-
-#define MERI_NO_EXCEPTIONS "exceptions are not supported yet"
-
 static void function(meri_program *p, uint32_t fid, meri_diag *d)
 {
     const limba_func *f = &p->m->funcs[fid];
@@ -3162,11 +3156,6 @@ static void function(meri_program *p, uint32_t fid, meri_diag *d)
 
     fn->type = f->type;
     fn->nparams = p->m->types[f->type].count;
-    if (body && raises(f)) {
-        snprintf(d->msg, sizeof(d->msg), "%s", MERI_NO_EXCEPTIONS);
-        p->failed = true;
-        return;
-    }
     if (body && !str_ptrs_stay(&l)) {
         p->failed = true;
         return;
