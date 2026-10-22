@@ -20,6 +20,8 @@
 #include "vm/rt.h"
 #include "vm/vm.h"
 
+#include "limba/math.h"
+
 #include <errno.h>
 #include <math.h>
 #include <stdlib.h>
@@ -393,8 +395,53 @@ static void put(void *p, limba_id t, uint64_t v)
     }
 }
 
+static void globals_free(const limba_module *m, void **g)
+{
+    uint32_t i;
+
+    if (!g)
+        return;
+    for (i = 0; i < m->nglobals; i++)
+        free(g[i]);
+    free(g);
+}
+
+/* the bytes and relocations of a LIMBA_INIT_DATA global at p, every
+   global already there (a relocation may name one that comes after);
+   false when memory is exhausted */
+static bool global_data(meri_state *s, void **g, void *p,
+                        const limba_initdata *d)
+{
+    const limba_module *m = s->p->m;
+    uint32_t k;
+
+    if (d->len)
+        memcpy(p, d->bytes, d->len);
+    for (k = 0; k < d->nrelocs; k++) {
+        const limba_reloc *rl = &d->relocs[k];
+        uint64_t v = 0;
+
+        if (rl->kind == LIMBA_RELOC_FUNC) {
+            v = (uint64_t)(uintptr_t)&s->p->fns[rl->id]; /* as faddr */
+        } else if (rl->kind == LIMBA_RELOC_GLOBAL) {
+            v = (uint64_t)(uintptr_t)g[rl->id] + (uint64_t)rl->addend;
+        } else { /* LIMBA_RELOC_STR: immortal, as sconst */
+            size_t n;
+            const char *text = limba_str(m, rl->id, &n);
+            meri_str *x = meri_state_immortal(s, text, n);
+
+            if (!x)
+                return false;
+            v = meri_str_value(x);
+        }
+        memcpy((uint8_t *)p + rl->offset, &v, 8);
+    }
+    return true;
+}
+
 /* the globals of the module, zeroed, with their initial values; NULL when
-   memory is exhausted */
+   memory is exhausted. All are made first, then filled: the data of one
+   may hold the address of another, before or after it */
 static void **globals_new(meri_state *s)
 {
     const limba_module *m = s->p->m;
@@ -404,20 +451,22 @@ static void **globals_new(meri_state *s)
     if (!g)
         return NULL;
     for (i = 0; i < m->nglobals; i++) {
-        const limba_global *gl = &m->globals[i];
-        const limba_type *ty = &m->types[gl->type];
+        const limba_type *ty = &m->types[m->globals[i].type];
         size_t align = ty->align < 8 ? 8 : ty->align;
         size_t size = ty->size ? ty->size : 1;
         void *p;
         size = (size + align - 1) / align * align;
         if (!meri_state_take(s, size) || posix_memalign(&p, align, size)) {
-            while (i-- > 0)
-                free(g[i]);
-            free(g);
+            globals_free(m, g);
             return NULL;
         }
         memset(p, 0, size);
         g[i] = p;
+    }
+    for (i = 0; i < m->nglobals; i++) {
+        const limba_global *gl = &m->globals[i];
+        void *p = g[i];
+
         if (gl->init == LIMBA_INIT_INT) {
             put(p, gl->type, meri_norm((uint64_t)gl->value, gl->type));
         } else if (gl->init == LIMBA_INIT_FLOAT) {
@@ -429,15 +478,14 @@ static void **globals_new(meri_state *s)
             const char *text = limba_str(m, (limba_id)gl->value, &n);
             meri_str *x = meri_state_immortal(s, text, n);
             if (!x) {
-                for (;; i--) {
-                    free(g[i]);
-                    if (!i)
-                        break;
-                }
-                free(g);
+                globals_free(m, g);
                 return NULL;
             }
             put(p, LIMBA_T_STR, meri_str_value(x));
+        } else if (gl->init == LIMBA_INIT_DATA &&
+                   !global_data(s, g, p, limba_global_data(m, i))) {
+            globals_free(m, g);
+            return NULL;
         }
     }
     return g;
@@ -1171,26 +1219,26 @@ op_CHECK:
 op_FSQRT:
     RA = db(sqrt(dv(RB)));
     NEXT;
-op_FMATH: {
+op_FMATH: { /* Limba's library but where IEEE 754 is exact (math.h) */
     double v = dv(RB);
     switch (MERI_W_C(w)) {
     case LIMBA_RT_MATH_SIN:
-        v = sin(v);
+        v = limba_math_sin(v);
         break;
     case LIMBA_RT_MATH_COS:
-        v = cos(v);
+        v = limba_math_cos(v);
         break;
     case LIMBA_RT_MATH_TAN:
-        v = tan(v);
+        v = limba_math_tan(v);
         break;
     case LIMBA_RT_MATH_ATAN:
-        v = atan(v);
+        v = limba_math_atan(v);
         break;
     case LIMBA_RT_MATH_EXP:
-        v = exp(v);
+        v = limba_math_exp(v);
         break;
     case LIMBA_RT_MATH_LN:
-        v = log(v);
+        v = limba_math_ln(v);
         break;
     case LIMBA_RT_MATH_TRUNC:
         v = trunc(v);

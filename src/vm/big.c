@@ -314,6 +314,62 @@ static int give(uint64_t *a, meri_big *x)
     return 1;
 }
 
+/* the BigInt library of runtime.def (progetto_ir.md § 11d): gcd, lcm,
+   sqrt, root, divexact, powmod into a new number in a[0]. Their checks
+   come before, in the IR; a module without them gets a trap here (11 for
+   a divisor or modulus 0, 101 for the rest), never the abort of mini-gmp
+   (gmp_die), and nothing is made before the checks */
+static int library(meri_state *s, uint32_t id, uint64_t *a)
+{
+    mpz_srcptr x = num(a[0]);
+    meri_big *r;
+
+    switch (id) {
+    case LIMBA_RT_BIG_SQRT:
+        if (mpz_sgn(x) < 0)
+            return trap(s, LIMBA_TRAP_RANGE);
+        break;
+    case LIMBA_RT_BIG_ROOT: /* k >= 1, and odd for a negative */
+        if ((int64_t)a[1] < 1 || (mpz_sgn(x) < 0 && !(a[1] & 1)))
+            return trap(s, LIMBA_TRAP_RANGE);
+        break;
+    case LIMBA_RT_BIG_DIVEXACT:
+        if (!mpz_sgn(num(a[1])))
+            return trap(s, LIMBA_TRAP_DIVZERO);
+        if (!mpz_divisible_p(x, num(a[1])))
+            return trap(s, LIMBA_TRAP_RANGE);
+        break;
+    case LIMBA_RT_BIG_POWMOD:
+        if (!mpz_sgn(num(a[2])))
+            return trap(s, LIMBA_TRAP_DIVZERO);
+        if (mpz_sgn(num(a[1])) < 0)
+            return trap(s, LIMBA_TRAP_RANGE);
+        break;
+    }
+    if (!(r = fresh(s)))
+        return trap(s, LIMBA_TRAP_NOMEM);
+    switch (id) {
+    case LIMBA_RT_BIG_GCD: /* >= 0; 0 for 0 and 0 */
+        mpz_gcd(r->z, x, num(a[1]));
+        break;
+    case LIMBA_RT_BIG_LCM: /* >= 0; 0 if an operand is 0 */
+        mpz_lcm(r->z, x, num(a[1]));
+        break;
+    case LIMBA_RT_BIG_SQRT: /* the floor */
+        mpz_sqrt(r->z, x);
+        break;
+    case LIMBA_RT_BIG_ROOT: /* truncated toward zero */
+        mpz_root(r->z, x, (unsigned long)a[1]);
+        break;
+    case LIMBA_RT_BIG_DIVEXACT:
+        mpz_divexact(r->z, x, num(a[1]));
+        break;
+    default: /* LIMBA_RT_BIG_POWMOD: in 0 .. |m| - 1, 0 ** 0 is 1 */
+        mpz_powm(r->z, x, num(a[1]), num(a[2]));
+    }
+    return give(a, r);
+}
+
 int meri_big_call(meri_state *s, uint32_t id, uint64_t *a)
 {
     jmp_buf jb;
@@ -344,6 +400,13 @@ int meri_big_call(meri_state *s, uint32_t id, uint64_t *a)
     case LIMBA_RT_PRINT_BIG:
     case LIMBA_RT_STR_FROM_BIG:
     case LIMBA_RT_STR_TO_BIG:
+    case LIMBA_RT_BIG_GCD:
+    case LIMBA_RT_BIG_LCM:
+    case LIMBA_RT_BIG_SQRT:
+    case LIMBA_RT_BIG_ROOT:
+    case LIMBA_RT_BIG_DIVISIBLE:
+    case LIMBA_RT_BIG_DIVEXACT:
+    case LIMBA_RT_BIG_POWMOD:
         break;
     default:
         return -1;
@@ -498,6 +561,24 @@ int meri_big_call(meri_state *s, uint32_t id, uint64_t *a)
         a[0] = meri_str_value(x);
         break;
     }
+    case LIMBA_RT_BIG_DIVISIBLE: { /* b != 0: checked before, in the IR */
+        mpz_srcptr x = num(a[0]), y = num(a[1]);
+        if (!mpz_sgn(y)) { /* a module without the check: never mini-gmp's
+                              abort */
+            res = trap(s, LIMBA_TRAP_DIVZERO);
+            break;
+        }
+        a[0] = mpz_divisible_p(x, y) != 0;
+        break;
+    }
+    case LIMBA_RT_BIG_GCD:
+    case LIMBA_RT_BIG_LCM:
+    case LIMBA_RT_BIG_SQRT:
+    case LIMBA_RT_BIG_ROOT:
+    case LIMBA_RT_BIG_DIVEXACT:
+    case LIMBA_RT_BIG_POWMOD:
+        res = library(s, id, a);
+        break;
     case LIMBA_RT_STR_TO_BIG: { /* val: a store of the number read */
         const meri_str *t = meri_str_of(a[0]);
         char *digits = malloc(t->len + 1);

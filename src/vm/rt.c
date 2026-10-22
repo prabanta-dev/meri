@@ -12,6 +12,7 @@
 #include "vm/big.h"
 
 #include "limba/fmt.h"
+#include "limba/math.h"
 #include "limba/val.h"
 
 #include <errno.h>
@@ -516,6 +517,9 @@ static int strings(meri_state *s, uint32_t id, uint64_t *a)
     return NOT_MINE;
 }
 
+/* the functions of a real: sqrt, trunc, floor and ceil exact in IEEE 754
+   from the C library; the others from Limba's library, the same bits as
+   lir_run on every machine (progetto_ir.md § 11b), never the C one's */
 static bool maths(uint32_t id, uint64_t *a)
 {
     double x = dv(a[0]), r;
@@ -525,22 +529,22 @@ static bool maths(uint32_t id, uint64_t *a)
         r = sqrt(x);
         break;
     case LIMBA_RT_MATH_SIN:
-        r = sin(x);
+        r = limba_math_sin(x);
         break;
     case LIMBA_RT_MATH_COS:
-        r = cos(x);
+        r = limba_math_cos(x);
         break;
     case LIMBA_RT_MATH_TAN:
-        r = tan(x);
+        r = limba_math_tan(x);
         break;
     case LIMBA_RT_MATH_ATAN:
-        r = atan(x);
+        r = limba_math_atan(x);
         break;
     case LIMBA_RT_MATH_EXP:
-        r = exp(x);
+        r = limba_math_exp(x);
         break;
     case LIMBA_RT_MATH_LN:
-        r = log(x);
+        r = limba_math_ln(x);
         break;
     case LIMBA_RT_MATH_TRUNC:
         r = trunc(x);
@@ -552,7 +556,7 @@ static bool maths(uint32_t id, uint64_t *a)
         r = ceil(x);
         break;
     case LIMBA_RT_MATH_POW:
-        r = pow(x, dv(a[1]));
+        r = limba_math_pow(x, dv(a[1]));
         break;
     default:
         return false;

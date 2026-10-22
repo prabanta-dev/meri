@@ -18,6 +18,10 @@
  *                       and nothing runs
  *   "; memory: broken"  a rule of the strings in memory broken: the first
  *                       cut of Meri does not check them, so it is skipped
+ *   "; module: wrong"   a check the IR makes before a call of the run time
+ *                       is missing (lir_run calls the module wrong): Meri
+ *                       must stop with a trap, whatever its code, never
+ *                       crash nor go on
  * The program is compiled, disassembled (to nothing) and run.
  */
 #define _GNU_SOURCE
@@ -71,7 +75,7 @@ typedef struct {
     size_t outlen;
     int status;
     int64_t value; /* the trap code or the result */
-    bool has_result, has_at, has_strings, has_refs, skip;
+    bool has_result, has_at, has_strings, has_refs, skip, any_trap;
     char link[128]; /* the linking must fail with this in its message */
     uint64_t strings, refs;
     unsigned line, col;
@@ -109,6 +113,9 @@ static void header(const char *text, expect *e)
             e->has_at = sscanf(p + 6, "%u:%u", &e->line, &e->col) == 2;
         } else if (!strncmp(p, "; memory: broken", 16)) {
             e->skip = true;
+        } else if (!strncmp(p, "; module: wrong", 15)) {
+            e->status = MERI_TRAP;
+            e->any_trap = true;
         }
         if (!eol)
             break;
@@ -183,7 +190,7 @@ static void one(const char *path)
         o = NULL;
         CHECK(r.status == e.status, "%s: ended with status %d, expected %d",
               path, r.status, e.status);
-        CHECK(e.status != MERI_TRAP || r.code == e.value,
+        CHECK(e.status != MERI_TRAP || e.any_trap || r.code == e.value,
               "%s: trap %" PRId64 ", expected %" PRId64, path, r.code, e.value);
         CHECK(!e.has_result || (int64_t)r.ret == e.value,
               "%s: returned %" PRId64 ", expected %" PRId64, path,

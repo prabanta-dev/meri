@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- IR version 7 of Limba: a global may start with bytes and relocations
+  (the address of a function or of a global, an immortal string); all the
+  globals are made first, then filled, so that one may hold the address of
+  another that comes after it.
+- The functions of mathematics (`sin`, `cos`, `tan`, `atan`, `exp`, `ln`,
+  `pow`) come from Limba's library, the same bits as its reference
+  interpreter on every machine, no longer from the C library.
+- The BigInt library of the run time: `big_gcd`, `big_lcm`, `big_sqrt`,
+  `big_root`, `big_divisible`, `big_divexact`, `big_powmod`, with
+  mini-gmp. A module without the checks the IR makes before them stops
+  with a trap, never with the abort of mini-gmp; `test_vm` reads the cases
+  of Limba marked `; module: wrong` so.
+
 - The two tools of the checks read nothing from the environment:
   `tools/sorvegliato.sh` takes its work directory and thresholds as options
   (`-d`, `-m`, `-g`, in place of `SORV_TMP`, `SORV_TMP_MIB`,
