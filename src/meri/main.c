@@ -116,6 +116,7 @@ int main(int argc, char **argv)
     const char *libdirs[64];
     size_t nlibdirs = 0;
 
+    limba_set_program("meri"); /* the prefix of Limba's own messages */
     for (i = 1; i < argc && !input; i++) {
         const char *a = argv[i];
 

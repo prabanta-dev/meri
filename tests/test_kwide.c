@@ -283,6 +283,7 @@ int main(void)
     char sum[64];
     size_t i;
 
+    limba_set_program("test_kwide");
     /* K * N + 0 + 1 + ... + N - 1 */
     snprintf(sum, sizeof(sum), "%" PRId64 "\n",
              K * N + (int64_t)N * (N - 1) / 2);

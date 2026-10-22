@@ -17,7 +17,17 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+int LLVMFuzzerInitialize(int *argc, char ***argv);
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size);
+
+/* libFuzzer calls it once before the first input; the driver below too */
+int LLVMFuzzerInitialize(int *argc, char ***argv)
+{
+    (void)argc;
+    (void)argv;
+    limba_set_program("fuzz_meri");
+    return 0;
+}
 
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 {
@@ -46,6 +56,7 @@ int main(int argc, char **argv)
 {
     int i;
 
+    LLVMFuzzerInitialize(&argc, &argv);
     for (i = 1; i < argc; i++) {
         FILE *f = fopen(argv[i], "rb");
         uint8_t *buf;

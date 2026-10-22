@@ -9,6 +9,7 @@
  * defined). A probe mixes every argument into its result, weighted by its
  * place, so that a value in the wrong register, or two swapped, shows.
  */
+#include "limba/ir.h"
 #include "vm/abi.h"
 
 #include <inttypes.h>
@@ -510,6 +511,7 @@ int main(void)
 {
     const char *why = "";
 
+    limba_set_program("test_abi");
     if (!meri_abi_available(&why)) {
         printf("test_abi: skipped: %s\n", why);
         return 0;

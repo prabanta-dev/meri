@@ -146,6 +146,7 @@ int main(void)
     size_t i;
     int fd[2];
 
+    limba_set_program("test_io");
     signal(SIGPIPE, SIG_IGN); /* as meri does: EPIPE, not a signal */
 
     /* a short input: 3 bytes, then the end for good */

@@ -33,6 +33,7 @@ int main(int argc, char **argv)
     long len;
     FILE *f;
 
+    limba_set_program("bytecode_dump");
     if (argc != 2) {
         fprintf(stderr, "usage: bytecode_dump FILE.lir\n");
         return 2;

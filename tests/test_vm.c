@@ -261,6 +261,7 @@ static void dir(const char *path)
 
 int main(void)
 {
+    limba_set_program("test_vm");
     dir("tests/vm");
     dir(MERI_LIMBA_DIR "/tests/eval");
     printf("test_vm: %d cases, %d skipped, %d failures\n", cases, skipped,

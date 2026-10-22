@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Every program of Meri (`meri`, `bytecode_dump`, the tests and the
+  fuzzing target) gives its name to Limba with `limba_set_program`, as
+  Limba asks from `d2c8c2d` on: its own messages carry that name.
+
 - The programs of Luxia leave for its repository (`../Luxia`): the
   benchmarks that call C (`tests/benchmarks/c` there), the test of the API that compiles Luxia
   (`test_meri_api` there) and the probes of the calls of C, which Luxia's
