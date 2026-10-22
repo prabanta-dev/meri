@@ -1,0 +1,24 @@
+; output: 6 overflow
+; result: 0
+; a trap of a function of the runtime (int_pow past i64) in a protected
+; block goes to the handler, with the words of traps.def
+func @main : fn() -> i64 {
+b0:
+  v0 = iconst i64 10
+  v1 = iconst i64 40
+  br b1
+b1 handler b2:
+  v2 = call.rt i64 int_pow(v0, v1)
+  call.rt void print_i64(v2)
+  v3 = iconst i64 1
+  ret v3
+b2(v4: i32, v5: i32, v6: str):
+  v7 = sext i64 v4
+  call.rt void print_i64(v7)
+  v8 = iconst i32 32
+  call.rt void print_char(v8)
+  call.rt void print_str(v6)
+  call.rt void print_nl()
+  v9 = iconst i64 0
+  ret v9
+}

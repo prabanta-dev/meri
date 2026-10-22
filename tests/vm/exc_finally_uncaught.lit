@@ -1,0 +1,35 @@
+; output: body
+; output: finally
+; trap: 1000
+; report: luxia: Oops: m at p.luxia:4:3
+; a finally crossed by an exception no handler catches runs (D96): the
+; handler that raises again in @work runs, then the program ends with the
+; exception, as lir_run ends it
+language "luxia"
+pos 1 "p.luxia" 4 3
+exception 1000 "Oops"
+
+func @work : fn() -> void {
+b0:
+  br b1
+b1 handler b2:
+  v0 = sconst str "body"
+  call.rt void print_str(v0)
+  call.rt void print_nl()
+  v1 = iconst i32 1000
+  v2 = iconst i32 1
+  v3 = sconst str "m"
+  raise v1, v2, v3
+b2(v4: i32, v5: i32, v6: str):
+  v7 = sconst str "finally"
+  call.rt void print_str(v7)
+  call.rt void print_nl()
+  raise v4, v5, v6
+}
+
+func @main : fn() -> i64 {
+b0:
+  call void @work()
+  v0 = iconst i64 0
+  ret v0
+}

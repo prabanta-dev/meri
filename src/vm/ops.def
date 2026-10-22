@@ -293,3 +293,13 @@ MERI_OP(CHKNLW, "chknlw", MERI_FMT_AKX)     /* the traps K[X], K[X + 1] */
    of the positions of the module, 0 for none), with the message R[C] (a
    str, retained for the exception): progetto_ir.md § 11i */
 MERI_OP(RAISE, "raise", MERI_FMT_ABC)
+/* the pads of a function under a handler (lower.c, progetto_ir.md § 11i),
+   after its code, reached only through its table when an exception is on
+   its way. CATCH gives the handler the occurrence: R[A] its identity,
+   R[B] its position (both i32), R[C] its message, a str the handler owns
+   (the words of the module or of traps.def for a trap); a JMP to the
+   handler follows. UNWIND leaves the frame (its slots given back; their
+   strings released by a RELSLOTS before it) and the exception goes on
+   from the call in the caller */
+MERI_OP(CATCH, "catch", MERI_FMT_ABC)
+MERI_OP(UNWIND, "unwind", MERI_FMT_NONE)

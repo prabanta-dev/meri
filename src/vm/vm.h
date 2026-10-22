@@ -38,6 +38,12 @@ typedef struct {
     limba_id *rel_types; /* the type of each: the body is gone by then */
     uint32_t nrel_slots;
     limba_id type; /* the function type in the module */
+    /* where an exception raised at a word goes (progetto_ir.md § 11i):
+       from word exc_at[i] (ascending) up to exc_at[i + 1], to the pad at
+       word exc_pad[i]; with none (nexc 0) it stops the run there. Only
+       the words that may raise are ever looked up */
+    uint32_t *exc_at, *exc_pad;
+    uint32_t nexc;
 } meri_fn;
 
 struct meri_program {

@@ -538,6 +538,19 @@ static uint8_t *align_up(uint8_t *p, uint64_t a, const uint8_t *end)
     return q < (uintptr_t)p || q > (uintptr_t)end ? NULL : (uint8_t *)q;
 }
 
+/* the position of a stop with none of its own, as lir_run gives it: the
+   first call, from the innermost out, that has one */
+static uint32_t caller_pos(const frame *frames, size_t depth)
+{
+    while (depth-- > 0) {
+        const meri_fn *f = frames[depth].fn;
+        uint32_t pos = f->pos ? f->pos[frames[depth].pc - 1 - f->code] : 0;
+        if (pos)
+            return pos;
+    }
+    return 0;
+}
+
 static void run(meri_state *s, const meri_fn *entry, void **globals,
                 uint64_t *regs, uint8_t *slotmem, size_t nslotmem,
                 frame *frames, meri_result *r)
@@ -561,6 +574,14 @@ static void run(meri_state *s, const meri_fn *entry, void **globals,
     uint32_t w, x, ca = 0;
     uint64_t *dst = NULL; /* of the next call: see frame */
     bool nd = false;
+    /* the exception on its way (progetto_ir.md § 11i): its identity, its
+       position (given by raise, or of the point that raised it), its
+       message, a str it holds a reference of (made, as the words of the
+       module or of traps.def, only when a handler catches a trap) */
+    int64_t xcode = 0;
+    uint32_t xpos = 0;
+    bool xgiven = false, xmade = false;
+    uint64_t xmsg = 0;
 
     ip = fn->code;
     code = LIMBA_TRAP_NOMEM;
@@ -1095,9 +1116,7 @@ copy_args: {
     }
     PROF_RT(MERI_W_BX(w));
     if (!meri_rt_call(s, MERI_W_BX(w), to)) {
-        r->status = s->status;
-        r->code = s->code;
-        goto stop;
+        goto rt_fail;
     }
     NEXT;
 }
@@ -1118,9 +1137,7 @@ op_CALLRTW:
     ip = pc - 1;
     x = *pc++;
     if (!meri_rt_call(s, MERI_W_BX(w), &base[x])) {
-        r->status = s->status;
-        r->code = s->code;
-        goto stop;
+        goto rt_fail;
     }
     NEXT;
 op_CALLI:
@@ -1164,9 +1181,7 @@ op_CALLRT:
     ip = pc - 1;
     PROF_RT(MERI_W_BX(w));
     if (!meri_rt_call(s, MERI_W_BX(w), &RA)) {
-        r->status = s->status;
-        r->code = s->code;
-        goto stop;
+        goto rt_fail;
     }
     NEXT;
 op_CALLX: /* the arguments from A, as a call's: ffi.h */
@@ -1226,22 +1241,50 @@ op_JFLE:
 op_TRAP:
     ip = pc - 1;
     TRAP((int64_t)k[MERI_W_BX(w)]);
-op_RAISE: { /* no handler yet: the exception stops the run (§ 11i) */
-    const meri_str *t = meri_str_of(RC);
-    char *copy = t->len ? malloc(t->len) : NULL;
-
+op_RAISE: /* the str is the exception's: a reference of its own */
     ip = pc - 1;
-    if (copy)
-        memcpy(copy, t->data, t->len);
-    free(p->excmsg);
-    ((meri_program *)p)->excmsg = copy; /* allocated by Meri: see vm.h */
-    r->status = MERI_TRAP;
-    r->code = (int64_t)(int32_t)RA;
-    r->msg = copy;
-    r->msglen = copy ? t->len : 0;
-    r->pos = (uint32_t)RB;
-    return;
-}
+    xcode = (int64_t)(int32_t)RA;
+    xpos = (uint32_t)RB;
+    xgiven = true;
+    xmsg = RC;
+    xmade = RC != 0; /* the str 0: worded as a trap, as lir_run does */
+    meri_str_retain(xmsg);
+    if (!limba_exception_catchable(xcode))
+        goto uncaught; /* 7, 28 and their family: no handler, no finally */
+    goto raise;
+op_CATCH: /* in a pad: the occurrence to the handler */
+    if (!xmade) {
+        size_t n = 0;
+        const char *t = limba_trap_message(p->m, xcode, &n);
+        meri_str *made = meri_state_str(s, t, t ? n : 0);
+        if (!made) {
+            ip = pc - 1;
+            TRAP(LIMBA_TRAP_NOMEM);
+        }
+        xmsg = meri_str_value(made);
+    }
+    RA = (uint64_t)(int64_t)(int32_t)xcode;
+    RB = (uint64_t)(int64_t)(int32_t)xpos;
+    RC = xmsg;
+    xmsg = 0;
+    xmade = false;
+    NEXT;
+op_UNWIND: /* in a pad: the frame left, the exception on from the call */
+    if (fn->slot_size)
+        meri_state_give(s, fn->slot_size);
+    if (!depth)
+        goto uncaught;
+    depth--;
+    pc = frames[depth].pc;
+    fn = frames[depth].fn;
+    base = frames[depth].base;
+    slots = frames[depth].slots;
+    slot_top = frames[depth].slot_top;
+    k = fn->k;
+    ip = pc - 1; /* the last word of the call */
+    if (!xgiven && !xpos && fn->pos)
+        xpos = fn->pos[ip - fn->code]; /* as lir_run: the call's */
+    goto raise;
 op_CHECK:
     ip = pc - 1;
     if (!RA)
@@ -1682,11 +1725,60 @@ op_UNREACH:
     r->status = MERI_UNREACHABLE;
     goto stop;
 
+rt_fail: /* a function of the runtime stopped: a trap may be caught */
+    if (s->status == MERI_TRAP)
+        TRAP(s->code);
+    r->status = s->status;
+    r->code = s->code;
+    goto stop;
 trap:
+    /* a trap a handler may catch (progetto_ir.md § 11i); not an error of
+       the output, found at a later write than the one that made it */
+    if (limba_exception_catchable(code) && !s->nopos) {
+        xcode = code;
+        xpos = fn->pos ? fn->pos[ip - fn->code] : 0;
+        xgiven = false;
+        xmade = false;
+        xmsg = 0;
+        goto raise;
+    }
     r->status = MERI_TRAP;
     r->code = code;
 stop:
     r->pos = fn->pos && !s->nopos ? fn->pos[ip - fn->code] : 0;
+    if (!r->pos && !s->nopos &&
+        (r->status == MERI_TRAP || r->status == MERI_UNREACHABLE))
+        r->pos = caller_pos(frames, depth);
+    return;
+raise: { /* the pad of the word ip, if its function has one */
+    uint32_t at = (uint32_t)(ip - fn->code), lo = 0, hi = fn->nexc;
+    while (lo < hi) {
+        uint32_t mid = lo + (hi - lo) / 2;
+        if (fn->exc_at[mid] <= at)
+            lo = mid + 1;
+        else
+            hi = mid;
+    }
+    if (lo) {
+        pc = fn->code + fn->exc_pad[lo - 1];
+        NEXT;
+    }
+}
+uncaught: /* the exception ends the run */
+    r->status = MERI_TRAP;
+    r->code = xcode;
+    r->pos = xpos || xgiven ? xpos : caller_pos(frames, depth);
+    if (xmade) {
+        const meri_str *t = meri_str_of(xmsg);
+        char *copy = malloc(t->len + 1);
+        if (copy) {
+            memcpy(copy, t->data, t->len);
+            free(p->excmsg);
+            ((meri_program *)p)->excmsg = copy; /* Meri's: see vm.h */
+            r->msg = copy;
+            r->msglen = t->len;
+        }
+    }
 #undef NEXT
 #undef RA
 #undef RB

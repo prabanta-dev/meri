@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- Handlers: a trap of an instruction or of the run time, or an exception
+  out of a call, in a protected block goes to its handler with its
+  identity, position and message (the words of the module or of
+  `traps.def` for a trap). Each function has a table from its words to
+  pads after its code: a pad releases the strings the registers hold
+  there but those the handler needs, then gives the handler the
+  occurrence (CATCH) or leaves the frame (RELSLOTS, UNWIND: its slots
+  released and given back), and the exception goes on from the call.
+  Liveness has an arc from a protected block to its handler, and the
+  handler is laid out after the code it protects. 7, 28 and their family,
+  unreachable and the errors of the engine are never caught; an error of
+  the output is not either (found at a later write, as lir_run finds it
+  at the end). A stop with no position takes the first call's that has
+  one, as lir_run. No LOOP joins blocks with different handlers. A trap's
+  identity raised with no words is its name alone. `par_for` is still
+  refused.
+
 - `raise`: an exception no handler catches stops the run, worded as the
   reference interpreter words it: the name the module gives its identity,
   its message, the position of the raise (`meri_result.msg`). A trap the

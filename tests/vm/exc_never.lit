@@ -1,0 +1,14 @@
+; stops: unreachable
+; unreachable, stack overflow, a bad call.ind never go to a handler (D94):
+; the run stops where they are, and no handler runs
+func @main : fn() -> i64 {
+b0:
+  br b1
+b1 handler b2:
+  unreachable
+b2(v0: i32, v1: i32, v2: str):
+  v3 = sconst str "never"
+  call.rt void print_str(v3)
+  v4 = iconst i64 1
+  ret v4
+}

@@ -20,10 +20,13 @@
  *                       and nothing runs
  *   "; memory: broken"  a rule of the strings in memory broken: the first
  *                       cut of Meri does not check them, so it is skipped
- * A module with handlers or a par_for (progetto_ir.md § 11i) must be
- * refused with the message of lower.c, until the engine runs them:
- * counted as refused. A raise no handler catches is run: "; trap: <n>"
- * is then its identity.
+ *   "; stops: <how>"    the run ends unreachable or badcall (tests/vm only)
+ *   "; never: <op>"     no function of the bytecode has the instruction op
+ *                       (tests/vm only): a fusion that must not happen
+ * A module with a par_for (progetto_ir.md § 11i) must be refused with the
+ * message of lower.c, until the engine runs it: counted as refused. An
+ * exception no handler catches ends the run: "; trap: <n>" is then its
+ * identity.
  *   "; module: wrong"   a check the IR makes before a call of the run time
  *                       is missing (lir_run calls the module wrong): Meri
  *                       must stop with a trap, whatever its code, never
@@ -84,6 +87,7 @@ typedef struct {
     bool has_result, has_at, has_strings, has_refs, skip, any_trap;
     char link[128];   /* the linking must fail with this in its message */
     char report[256]; /* meri_report must write this line, if not empty */
+    char never[32];   /* no instruction of the bytecode is this one */
     uint64_t strings, refs;
     unsigned line, col;
 } expect;
@@ -117,6 +121,13 @@ static void header(const char *text, expect *e)
                    n - 10 < sizeof(e->report)) {
             memcpy(e->report, p + 10, n - 10);
             e->report[n - 10] = 0;
+        } else if (!strncmp(p, "; stops: unreachable", 20)) {
+            e->status = MERI_UNREACHABLE;
+        } else if (!strncmp(p, "; stops: badcall", 16)) {
+            e->status = MERI_BADCALL;
+        } else if (!strncmp(p, "; never: ", 9) && n - 9 < sizeof(e->never)) {
+            memcpy(e->never, p + 9, n - 9);
+            e->never[n - 9] = 0;
         } else if (!strncmp(p, "; refs: ", 8)) {
             e->refs = strtoull(p + 8, NULL, 10);
             e->has_refs = true;
@@ -138,13 +149,10 @@ static void header(const char *text, expect *e)
    lower.c sees it) */
 static bool excepts(const limba_module *m)
 {
-    uint32_t i, b, k;
+    uint32_t i, k;
 
     for (i = 0; i < m->nfuncs; i++) {
         const limba_func *f = &m->funcs[i];
-        for (b = 0; b < f->nblocks; b++)
-            if (f->blocks[b].handler)
-                return true;
         for (k = 0; k < f->ninsts; k++)
             if (f->insts[k].op == LIMBA_OP_CALLRT &&
                 f->insts[k].imm == LIMBA_RT_PAR_FOR)
@@ -201,8 +209,19 @@ static void one(const char *path)
         limba_module_free(m);
         return;
     }
-    null = fopen("/dev/null", "w");
-    if (null) {
+    if (e.never[0]) { /* the disassembly: "<word>  <op>" a line */
+        char *dis = NULL, pat[48];
+        size_t dlen = 0;
+        FILE *ds = open_memstream(&dis, &dlen);
+        if (ds) {
+            meri_disasm(p, ds);
+            fclose(ds);
+        }
+        snprintf(pat, sizeof(pat), "  %s ", e.never);
+        CHECK(dis && !strstr(dis, pat), "%s: the bytecode has %s", path,
+              e.never);
+        free(dis);
+    } else if ((null = fopen("/dev/null", "w"))) {
         meri_disasm(p, null);
         fclose(null);
     }

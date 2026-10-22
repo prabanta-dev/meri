@@ -272,9 +272,17 @@ static void live_solve(live *l)
             const uint64_t *def = set_of(l->def, l->words, b);
 
             ns = meri_nsuccs(f, b);
-            for (i = 0; i < ns; i++) {
-                const uint64_t *sin =
-                    set_of(l->in, l->words, meri_succ(f, b, i));
+            for (i = 0; i <= ns; i++) {
+                /* the last: the arc of an error to the handler, from
+                   every point of b that may raise (progetto_ir.md § 11i):
+                   what the handler needs lives through all of b, defined
+                   before it */
+                limba_id t =
+                    i < ns ? meri_succ(f, b, i) : limba_block_handler(f, b);
+                const uint64_t *sin;
+                if (t == LIMBA_NONE)
+                    continue;
+                sin = set_of(l->in, l->words, t);
                 for (w = 0; w < l->words; w++)
                     out[w] |= sin[w];
             }
@@ -878,13 +886,21 @@ bool meri_str_plan(const limba_func *f, meri_strplan *p)
     p->at_ret = calloc((size_t)f->nblocks + 1, sizeof(meri_list));
     p->edge_at = calloc((size_t)f->nblocks + 1, sizeof(uint32_t));
     p->edge = calloc((size_t)nedges + 1, sizeof(meri_list));
+    p->in = calloc((size_t)f->nblocks + 1, sizeof(meri_list));
     if (!p->after || !p->start || !p->at_ret || !p->edge_at || !p->edge ||
-        !live_init(&l, f, NULL, NULL, NULL))
+        !p->in || !live_init(&l, f, NULL, NULL, NULL))
         goto done;
     live_solve(&l);
     now = calloc(l.words, sizeof(uint64_t));
     if (!now)
         goto done;
+    for (b = 0; b < f->nblocks; b++) {
+        const uint64_t *in = set_of(l.in, l.words, b);
+        begin(p, &p->in[b]);
+        for (i = 0; i < f->ninsts; i++)
+            if (set_has(in, i) && is_str(f, i) && !plan_add(p, &p->in[b], i))
+                goto done;
+    }
 
     for (b = 0, e = 0; b < f->nblocks; b++) {
         const limba_block *bl = &f->blocks[b];
@@ -977,6 +993,7 @@ void meri_strplan_free(meri_strplan *p)
     free(p->edge_at);
     free(p->edge);
     free(p->at_ret);
+    free(p->in);
     memset(p, 0, sizeof(*p));
 }
 

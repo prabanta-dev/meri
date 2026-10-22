@@ -90,6 +90,8 @@ typedef struct {
     meri_list *edge;   /* of each edge (block, successor i): dead on it */
     meri_list *at_ret; /* of each block ending in ret: alive at the ret,
                           but the value returned */
+    meri_list *in;     /* of each block: alive where it begins (not its
+                          parameters), each holding a reference */
 } meri_strplan;
 
 /* the plan of f; false when memory is exhausted */

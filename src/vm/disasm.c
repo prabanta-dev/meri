@@ -131,5 +131,9 @@ void meri_disasm(const meri_program *p, FILE *out)
                       ? meri_n_words(fn->code[at + 1] & 0xff) + 1
                       : meri_fmt_words(meri_ops[op].format);
         }
+        /* where an exception goes (vm.h): from a word on, to a pad */
+        for (at = 0; at < fn->nexc; at++)
+            fprintf(out, "  exc %6" PRIu32 " -> %" PRIu32 "\n", fn->exc_at[at],
+                    fn->exc_pad[at]);
     }
 }

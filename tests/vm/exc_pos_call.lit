@@ -1,0 +1,30 @@
+; output: 1
+; trap: 101
+; at: 9:4
+; the position of a trap with none, as lir_run gives it: the first call
+; that has one, from the innermost out. Caught: the handler gets it; not
+; caught, the run stops there
+pos 1 "p.luxia" 9 4
+
+func @bad : fn() -> void {
+b0:
+  v0 = iconst i1 0
+  check v0, 101
+  ret
+}
+
+func @main : fn() -> i64 {
+b0:
+  br b1
+b1 handler b2:
+  call void @bad() !1
+  v0 = iconst i64 0
+  ret v0
+b2(v1: i32, v2: i32, v3: str):
+  v4 = sext i64 v2
+  call.rt void print_i64(v4)
+  call.rt void print_nl()
+  call void @bad() !1
+  v5 = iconst i64 2
+  ret v5
+}

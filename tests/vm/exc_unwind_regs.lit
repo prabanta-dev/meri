@@ -1,0 +1,45 @@
+; output: index out of range
+; result: 3
+; strings: 0
+; an exception out of two frames, each holding strings in registers, one
+; in a typed slot: every pad releases what its frame holds, the slot is
+; released and given back as the frame is left, and the handler of main
+; gets the words of the trap
+language "luxia"
+message 100 "index out of range"
+
+func @boom : fn(i64) -> i64 {
+b0(v0: i64):
+  v1 = iconst i1 0
+  check v1, 100
+  ret v0
+}
+
+func @inner : fn(str) -> i64 {
+  slot 8 align 8 type str
+b0(v0: str):
+  v1 = call.rt str str_concat(v0, v0)
+  v2 = slot ptr $0
+  store v1, v2
+  v3 = call.rt str str_concat(v1, v0)
+  v4 = iconst i64 7
+  v5 = call i64 @boom(v4)
+  call.rt void print_str(v3)
+  ret v5
+}
+
+func @main : fn() -> i64 {
+b0:
+  v0 = sconst str "x"
+  v1 = call.rt str str_concat(v0, v0)
+  br b1
+b1 handler b2:
+  v2 = call i64 @inner(v1)
+  call.rt void print_str(v1)
+  ret v2
+b2(v3: i32, v4: i32, v5: str):
+  call.rt void print_str(v5)
+  call.rt void print_nl()
+  v6 = iconst i64 3
+  ret v6
+}

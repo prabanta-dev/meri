@@ -93,6 +93,27 @@ typedef struct {
     uint32_t *npred;   /* of each block: the jumps to it */
     fixup *fix;
     uint32_t nfix, capfix;
+    /* the exceptions (progetto_ir.md § 11i): the counted values whose
+       references the registers hold at the point being emitted */
+    uint32_t *held, nheld, capheld;
+    uint32_t heldv;   /* changes with held */
+    uint32_t *stamp;  /* of each value: the stamp of the entry of the
+                         handler of the block emitted, if it is there */
+    uint32_t stampv;  /* the stamp now */
+    limba_id handler; /* of the block being emitted, LIMBA_NONE */
+    /* the pads: a handler (LIMBA_NONE: the frame is left) and the values
+       released before it, padval[first .. first + n) */
+    struct pad {
+        limba_id h;
+        uint32_t first, n, word, hash;
+    } *pads;
+    uint32_t npads, cappads;
+    uint32_t *padval, npadval, cappadval;
+    uint32_t *padix, cappadix; /* open addressing: pad + 1, 0 empty */
+    /* the table: from word exc_at[i], pad exc_pid[i] */
+    uint32_t *exc_at, *exc_pid, nexc, capexc, cappid;
+    uint32_t lastv; /* heldv of the last point, with lasth */
+    limba_id lasth;
 } L;
 
 static void fail(L *l, const char *fmt, ...)
@@ -401,13 +422,17 @@ static unsigned release_op(const L *l, uint32_t v)
                                               : MERI_OP_SRELEASE;
 }
 
+static void held_drop(L *l, uint32_t v);
+
 static void release_list(L *l, const meri_list *d)
 {
     uint32_t i;
 
-    for (i = 0; i < d->n; i++)
+    for (i = 0; i < d->n; i++) {
         emit(l, meri_abc(release_op(l, l->sp.pool[d->first + i]),
                          use(l, l->sp.pool[d->first + i], 0), 0, 0));
+        held_drop(l, l->sp.pool[d->first + i]);
+    }
 }
 
 /* the strings that stop living on edge i of the block being emitted */
@@ -1013,8 +1038,11 @@ static bool loop_end(L *l, const limba_inst *t)
     else
         go = tb, gk = 1, gi = 0, stay = eb, xk = ek, xi = 1;
     gb = &f->blocks[go];
+    /* a superinstruction never joins blocks with different handlers
+       (progetto_ir.md § 11i): their pads differ */
     if (go == stay || go == l->block || l->npred[go] != 1 ||
         l->at_of[go] <= l->at || gb->nparams ||
+        limba_block_handler(f, go) != limba_block_handler(f, l->block) ||
         edge_code_of(l, l->block, t, gk, gi) || l->sp.start[go].n)
         return false;
     /* its instructions but the constants loaded before block 0 and those
@@ -1318,6 +1346,20 @@ static bool hoistable(const limba_func *f, uint32_t v)
            !counted(in->type);
 }
 
+/* the successors of block b for the order of the code and its loops:
+   those of its terminator, then its handler, reached by an error */
+static uint32_t nsuccs_h(const limba_func *f, limba_id b)
+{
+    return meri_nsuccs(f, b) + (limba_block_handler(f, b) != LIMBA_NONE);
+}
+
+static limba_id succ_h(const limba_func *f, limba_id b, uint32_t i)
+{
+    uint32_t n = meri_nsuccs(f, b);
+
+    return i < n ? meri_succ(f, b, i) : limba_block_handler(f, b);
+}
+
 /* the blocks that lie on a cycle of the CFG (in a strongly connected
    component with more than one block, or with an edge to itself), and
    the component of each block (comp may be NULL): Tarjan's algorithm,
@@ -1346,8 +1388,8 @@ static bool loop_blocks(const limba_func *f, uint8_t *inloop, uint32_t *comp)
         stack[top++] = b, on[b] = 1;
         while (ntop) {
             uint32_t v = call[ntop - 1];
-            if (next[ntop - 1] < meri_nsuccs(f, v)) {
-                uint32_t w = meri_succ(f, v, next[ntop - 1]++);
+            if (next[ntop - 1] < nsuccs_h(f, v)) {
+                uint32_t w = succ_h(f, v, next[ntop - 1]++);
                 if (w == v)
                     inloop[v] = 1; /* an edge to itself */
                 if (index[w] == UINT32_MAX) {
@@ -2758,9 +2800,10 @@ static void layout_slots(L *l, meri_fn *fn)
    the blocks that lead to it (the ends of a loop, where it jumps back,
    last in it). The walk takes the successors that leave the loop of the
    block first, so that they come after it, the loop whole before them;
-   the others from the last, so that the first falls through. Blocks no
-   path reaches follow, in the order of the IR. false when memory is
-   exhausted */
+   the others from the last, so that the first falls through (the handler
+   of a block counts as its last successor: it comes after the code it
+   protects). Blocks no path reaches follow, in the order of the IR.
+   false when memory is exhausted */
 static bool layout(const limba_func *f, uint32_t *order)
 {
     uint32_t nb = f->nblocks, k, b, top, n = 0;
@@ -2776,12 +2819,12 @@ static bool layout(const limba_func *f, uint32_t *order)
         goto done;
     stack[0] = 0, next[0] = 0, top = 1, seen[0] = 1;
     while (top) {
-        uint32_t v = stack[top - 1], ns = meri_nsuccs(f, v), w = LIMBA_NONE;
+        uint32_t v = stack[top - 1], ns = nsuccs_h(f, v), w = LIMBA_NONE;
         /* step i of 2 * ns: first the successors out of v's component,
            then those in it, each pass from the last successor */
         while (next[top - 1] < 2 * ns && w == LIMBA_NONE) {
             uint32_t step = next[top - 1]++, pass = step / ns;
-            uint32_t s2 = meri_succ(f, v, ns - 1 - step % ns);
+            uint32_t s2 = succ_h(f, v, ns - 1 - step % ns);
             if (!seen[s2] && (comp[s2] != comp[v]) == (pass == 0))
                 w = s2;
         }
@@ -2873,16 +2916,233 @@ static bool registers(L *l, uint32_t nparams)
     return true;
 }
 
+/* ---- the exceptions: pads and the table (progetto_ir.md § 11i) ----
+
+   Every point of the code that may raise is under an entry of the table
+   of its function, that names a pad: the values whose references the
+   registers hold there are released, but those the handler of the block
+   needs (alive where the handler begins, so defined before the protected
+   block: they live through it). Then, with a handler, CATCH gives it the
+   occurrence and a JMP goes to it; without one the frame is left
+   (RELSLOTS for its typed slots, UNWIND). The values held are followed
+   as the code is emitted: those alive where the block begins and its
+   parameters, each result counted, each release. A pad serves every
+   point with the same handler and the same values to release */
+
+static void held_add(L *l, uint32_t v)
+{
+    if (l->al.reg[v] == MERI_NOREG)
+        return; /* no register: nothing held */
+    if (!grow((void **)&l->held, &l->capheld, l->nheld + 1, sizeof(uint32_t))) {
+        fail(l, "out of memory");
+        return;
+    }
+    l->held[l->nheld++] = v;
+    l->heldv++;
+}
+
+static void held_drop(L *l, uint32_t v)
+{
+    uint32_t i;
+
+    for (i = 0; i < l->nheld; i++)
+        if (l->held[i] == v) {
+            l->held[i] = l->held[--l->nheld];
+            l->heldv++;
+            return;
+        }
+}
+
+/* where block b begins, before the releases of its unused parameters */
+static void held_start(L *l, uint32_t b)
+{
+    const limba_block *bl = &l->f->blocks[b];
+    const meri_list *in = &l->sp.in[b];
+    uint32_t i;
+
+    l->nheld = 0;
+    l->heldv++;
+    for (i = 0; i < in->n; i++)
+        held_add(l, l->sp.pool[in->first + i]);
+    for (i = 0; i < bl->nparams; i++)
+        if (is_str(l, bl->insts[i]))
+            held_add(l, bl->insts[i]);
+    l->handler = limba_block_handler(l->f, b);
+    l->stampv++;
+    if (l->handler != LIMBA_NONE) {
+        in = &l->sp.in[l->handler];
+        for (i = 0; i < in->n; i++)
+            l->stamp[l->sp.pool[in->first + i]] = l->stampv;
+    }
+}
+
+static uint32_t pad_hash(limba_id h, const uint32_t *v, uint32_t n)
+{
+    uint32_t x = 2166136261u ^ h, i;
+
+    for (i = 0; i < n; i++)
+        x = (x ^ v[i]) * 16777619u;
+    return x;
+}
+
+/* the index slot of the pad (h, v[0..n)): where it is, or the empty one */
+static uint32_t *pad_slot(L *l, limba_id h, const uint32_t *v, uint32_t n,
+                          uint32_t hash)
+{
+    uint32_t m = l->cappadix - 1, k = hash & m;
+
+    for (;; k = (k + 1) & m) {
+        const struct pad *q;
+        if (!l->padix[k])
+            return &l->padix[k];
+        q = &l->pads[l->padix[k] - 1];
+        if (q->hash == hash && q->h == h && q->n == n &&
+            !memcmp(l->padval + q->first, v, n * sizeof(uint32_t)))
+            return &l->padix[k];
+    }
+}
+
+/* the pad of the point being emitted, made if new */
+static uint32_t pad_of(L *l)
+{
+    uint32_t first = l->npadval, n = 0, i, j, hash, *slot;
+
+    if (!grow((void **)&l->padval, &l->cappadval, first + l->nheld + 1,
+              sizeof(uint32_t))) {
+        fail(l, "out of memory");
+        return 0;
+    }
+    for (i = 0; i < l->nheld; i++) {
+        uint32_t v = l->held[i];
+        if (l->handler != LIMBA_NONE && l->stamp[v] == l->stampv)
+            continue; /* the handler needs it */
+        for (j = n; j > 0 && l->padval[first + j - 1] > v; j--)
+            l->padval[first + j] = l->padval[first + j - 1];
+        l->padval[first + j] = v;
+        n++;
+    }
+    if ((l->npads + 1) * 2 > l->cappadix) {
+        uint32_t cap = l->cappadix ? 2 * l->cappadix : 64, k;
+        uint32_t *ix = cap > UINT32_MAX / 4 ? NULL : calloc(cap, 4);
+        if (!ix) {
+            fail(l, "out of memory");
+            return 0;
+        }
+        free(l->padix);
+        l->padix = ix;
+        l->cappadix = cap;
+        for (k = 0; k < l->npads; k++) {
+            const struct pad *q = &l->pads[k];
+            *pad_slot(l, q->h, l->padval + q->first, q->n, q->hash) = k + 1;
+        }
+    }
+    hash = pad_hash(l->handler, l->padval + first, n);
+    slot = pad_slot(l, l->handler, l->padval + first, n, hash);
+    if (*slot)
+        return *slot - 1;
+    if (!grow((void **)&l->pads, &l->cappads, l->npads + 1,
+              sizeof(struct pad))) {
+        fail(l, "out of memory");
+        return 0;
+    }
+    l->pads[l->npads] = (struct pad){l->handler, first, n, 0, hash};
+    l->npadval += n;
+    *slot = l->npads + 1;
+    return l->npads++;
+}
+
+/* an instruction is emitted from here: the entry of the table for it */
+static void exc_point(L *l)
+{
+    uint32_t pid;
+
+    if (l->failed ||
+        (l->nexc && l->heldv == l->lastv && l->handler == l->lasth))
+        return; /* the pad of the entry before */
+    l->lastv = l->heldv;
+    l->lasth = l->handler;
+    pid = pad_of(l);
+    if (l->failed || (l->nexc && l->exc_pid[l->nexc - 1] == pid))
+        return;
+    if (l->nexc && l->exc_at[l->nexc - 1] == l->ncode) {
+        /* the entry before covers no word: this one takes its place */
+        l->exc_pid[l->nexc - 1] = pid;
+        if (l->nexc > 1 && l->exc_pid[l->nexc - 2] == pid)
+            l->nexc--;
+        return;
+    }
+    if (!grow((void **)&l->exc_at, &l->capexc, l->nexc + 1, sizeof(uint32_t)) ||
+        !grow((void **)&l->exc_pid, &l->cappid, l->nexc + 1,
+              sizeof(uint32_t))) {
+        fail(l, "out of memory");
+        return;
+    }
+    l->exc_at[l->nexc] = l->ncode;
+    l->exc_pid[l->nexc++] = pid;
+}
+
+/* the pads, after the code of the blocks */
+static void emit_pads(L *l)
+{
+    uint32_t i, k;
+
+    l->cur = 0;
+    for (i = 0; i < l->npads && !l->failed; i++) {
+        const struct pad *q = &l->pads[i];
+        l->pads[i].word = l->ncode;
+        for (k = 0; k < q->n; k++) {
+            uint32_t v = l->padval[q->first + k];
+            emit(l, meri_abc(release_op(l, v), use(l, v, 0), 0, 0));
+        }
+        if (q->h != LIMBA_NONE) {
+            /* the parameters of the handler: a high one through a low
+               temporary */
+            const limba_block *hb = &l->f->blocks[q->h];
+            unsigned r[3], lo[3];
+            for (k = 0; k < 3; k++) {
+                r[k] = reg(l, hb->insts[k]);
+                lo[k] = r[k] <= 255 ? r[k] : l->temp + k;
+            }
+            emit(l, meri_abc(MERI_OP_CATCH, lo[0], lo[1], lo[2]));
+            for (k = 0; k < 3; k++)
+                if (r[k] > 255)
+                    move(l, r[k], lo[k]);
+            jump_to(l, q->h);
+        } else {
+            if (l->fn->nrel_slots)
+                emit(l, meri_abc(MERI_OP_RELSLOTS, 0, 0, 0));
+            emit(l, meri_abc(MERI_OP_UNWIND, 0, 0, 0));
+        }
+    }
+}
+
+/* the table of the function, from the entries and the words of the pads */
+static void exc_table(L *l, meri_fn *fn)
+{
+    uint32_t i;
+
+    if (l->failed || !l->nexc)
+        return;
+    fn->exc_at = malloc((size_t)l->nexc * sizeof(uint32_t));
+    fn->exc_pad = malloc((size_t)l->nexc * sizeof(uint32_t));
+    if (!fn->exc_at || !fn->exc_pad) {
+        fail(l, "out of memory");
+        return;
+    }
+    for (i = 0; i < l->nexc; i++) {
+        fn->exc_at[i] = l->exc_at[i];
+        fn->exc_pad[i] = l->pads[l->exc_pid[i]].word;
+    }
+    fn->nexc = l->nexc;
+}
+
 /* what of the exceptions the engine does not run yet (progetto_ir.md
-   § 11i) in the body of f: a protected block, a par_for. Such a module is
-   refused, never run wrong; a raise no handler catches stops the run */
+   § 11i) in the body of f: a par_for. Such a module is refused, never run
+   wrong */
 static bool raises(const limba_func *f)
 {
-    uint32_t b, i;
+    uint32_t i;
 
-    for (b = 0; b < f->nblocks; b++)
-        if (f->blocks[b].handler)
-            return true;
     for (i = 0; i < f->ninsts; i++)
         if (f->insts[i].op == LIMBA_OP_CALLRT &&
             f->insts[i].imm == LIMBA_RT_PAR_FOR)
@@ -2985,7 +3245,8 @@ static void function(meri_program *p, uint32_t fid, meri_diag *d)
         l.at_of = malloc(((size_t)f->nblocks + 1) * sizeof(uint32_t));
         l.skip = calloc((size_t)f->nblocks + 1, 1);
         l.npred = calloc((size_t)f->nblocks + 1, sizeof(uint32_t));
-        if (!l.at_of || !l.skip || !l.npred)
+        l.stamp = calloc((size_t)f->ninsts + 1, sizeof(uint32_t));
+        if (!l.at_of || !l.skip || !l.npred || !l.stamp)
             fail(&l, "out of memory");
         for (k = 0; k < f->nblocks && !l.failed; k++) {
             uint32_t ns = meri_nsuccs(f, k), j;
@@ -3003,11 +3264,15 @@ static void function(meri_program *p, uint32_t fid, meri_diag *d)
             next = next_block(&l);
             l.block = b;
             l.label[b] = l.ncode;
+            held_start(&l, b);
             release_list(&l, &l.sp.start[b]);
             for (i = bl->nparams; i < bl->ninsts; i++) {
                 uint32_t id = bl->insts[i], q;
                 l.ii = i;
+                exc_point(&l);
                 inst(&l, id, next);
+                if (meri_has_value(&f->insts[id]) && is_str(&l, id))
+                    held_add(&l, id); /* its reference, from now */
                 if (i + 1 == bl->ninsts)
                     break;
                 /* the strings that die at an instruction emitted later,
@@ -3029,6 +3294,7 @@ static void function(meri_program *p, uint32_t fid, meri_diag *d)
             if (npend)
                 fail(&l, "strings released past the end of block %" PRIu32, b);
         }
+        emit_pads(&l);
         for (i = 0; i < l.nfix && !l.failed; i++) {
             uint32_t to = l.fix[i].block == LIMBA_NONE
                               ? l.fix[i].word
@@ -3054,6 +3320,7 @@ static void function(meri_program *p, uint32_t fid, meri_diag *d)
         l.cur = 0;
         emit(&l, meri_abc(MERI_OP_UNREACH, 0, 0, 0));
     }
+    exc_table(&l, fn);
     fn->nregs = l.outgoing + l.maxargs;
     fn->code = l.code;
     fn->ncode = l.ncode;
@@ -3094,6 +3361,13 @@ static void function(meri_program *p, uint32_t fid, meri_diag *d)
     free(l.at_of);
     free(l.skip);
     free(l.npred);
+    free(l.held);
+    free(l.stamp);
+    free(l.pads);
+    free(l.padval);
+    free(l.padix);
+    free(l.exc_at);
+    free(l.exc_pid);
     if (l.failed)
         p->failed = true;
 }
@@ -3225,6 +3499,8 @@ void meri_program_free(meri_program *p)
         free(p->fns[i].slot_off);
         free(p->fns[i].rel_slots);
         free(p->fns[i].rel_types);
+        free(p->fns[i].exc_at);
+        free(p->fns[i].exc_pad);
     }
     for (i = 0; i < p->nstrs; i++)
         free(p->strs[i]);
