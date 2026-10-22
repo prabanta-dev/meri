@@ -36,11 +36,13 @@ void meri_flush(FILE *out, meri_result *r)
    worded as the reference interpreter words it: the language of the
    module as the prefix, the name the module gives the identity, the
    message (raised with it, or the text of the module or of traps.def for
-   a trap), the position; everything else is Meri's own */
+   a trap), the position; everything else is the engine's own, prefixed
+   with the name of the program that runs it (limba_program: "meri" for
+   meri, "luxia" in luxia) */
 int meri_report(const limba_module *m, const meri_result *r, FILE *err)
 {
-    const char *what = NULL, *prefix = "meri", *name = NULL;
-    size_t wn = 0, pn = 4, nn = 0;
+    const char *what = NULL, *prefix = limba_program(), *name = NULL;
+    size_t wn = 0, pn = strlen(prefix), nn = 0;
 
     switch (r->status) {
     case MERI_OK:
@@ -84,7 +86,8 @@ int meri_report(const limba_module *m, const meri_result *r, FILE *err)
         fprintf(err, "%.*s: exception %lld", (int)pn, prefix,
                 (long long)r->code);
     } else {
-        fprintf(err, "meri: run-time error %lld", (long long)r->code);
+        fprintf(err, "%.*s: run-time error %lld", (int)pn, prefix,
+                (long long)r->code);
     }
     if (r->pos && r->pos <= m->npos) {
         const limba_pos *p = &m->pos[r->pos - 1];

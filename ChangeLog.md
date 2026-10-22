@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- `meri_report` prefixes the errors of the engine (unreachable, a bad
+  `call.ind`, `MERI_BADMEM`, a bad entry, a trap of a module with no
+  language) with the name of the program that runs it, as it gave it to
+  Limba (`limba_program`): `meri:` for meri, `luxia:` in luxia.
+
 - `MERI_BADMEM` also under UndefinedBehaviorSanitizer: the functions that
   touch the memory of the program through its pointers (the interpreter,
   the runtime's that read or write memory) leave the nil checks of the

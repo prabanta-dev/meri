@@ -1,4 +1,5 @@
 ; stops: unreachable
+; report: test_vm: unreachable executed
 ; unreachable, stack overflow, a bad call.ind never go to a handler (D94):
 ; the run stops where they are, and no handler runs
 func @main : fn() -> i64 {

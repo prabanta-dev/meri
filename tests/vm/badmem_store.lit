@@ -1,5 +1,7 @@
 ; stops: badmem
-; a store through nil itself with no check before: MERI_BADMEM
+; report: test_vm: wrong module: memory accessed with no check of nil
+; a store through nil itself with no check before: MERI_BADMEM, worded
+; with the name of the program that runs it (here test_vm)
 func @main : fn() -> i64 {
 b0:
   v0 = null ptr
