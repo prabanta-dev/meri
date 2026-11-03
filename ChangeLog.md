@@ -15,6 +15,9 @@
     smaller, its code the bytes last asked, and `meri_report` says so (it
     was the trap NOMEM with the words in `meri_result.msg`).
   New test `test_api`.
+- `tools/ops_table.py`: the table of the instructions in Markdown, from
+  `src/vm/ops.def` and `src/vm/code.h`; `--check FILE` for a net of the
+  documents.
 
 - IR version 9 (Limba `fe092ed`): `uadd.ov`, `usub.ov`, `umul.ov` (six
   new instructions for 64 and 32 bits, `intn` for the narrower ones; the
