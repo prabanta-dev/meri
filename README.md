@@ -49,6 +49,24 @@ size (BigInt, on mini-gmp) and calls of C libraries declared in the
 program (x86-64 Linux only), with Meri's own calling convention, without
 libffi.
 
+## What Meri trusts
+
+A module of the IR is trusted, as a precompiled chunk is in Lua. Meri
+reads a `.lir` from a file with Limba's verifier first, and the verifier
+checks the form of the module (types, SSA), not that its memory accesses
+are safe. Those safety checks are in the IR itself: a front end such as
+Luxia writes the checks of nil, of a block still alive and of the bounds,
+and the optimizer keeps them. A module without them is a wrong module:
+
+- an access of nil, within the first 64 KiB of memory, stops the run
+  (`wrong module: memory accessed with no check of nil`);
+- any other unchecked access may crash the process or change the memory
+  of the program or of the engine.
+
+The fuzz target of `meri` defends the reader and the engine against a
+malformed file, not against a valid module that does wrong things. Pointers
+of the program are checked before the C library is given them.
+
 ## The plan
 
 - `meri program.lir` runs the IR written by a front end, such as

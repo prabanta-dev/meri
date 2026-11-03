@@ -313,3 +313,12 @@ MERI_OP(UNWIND, "unwind", MERI_FMT_NONE)
    first exception that leaves the body and drops the others */
 MERI_OP(PARFOR, "parfor", MERI_FMT_ABx)
 MERI_OP(PARNEXT, "parnext", MERI_FMT_ABx)
+/* uadd.ov, usub.ov, umul.ov (IR 9): the operands and the result unsigned
+   in the width, OVERFLOW out of [0, 2^n - 1]; of 64 bits, and of 32 with
+   the result sign-extended from 32 bits as every i32 (i1, i8, i16: INTN) */
+MERI_OP(UADDOV, "uadd.ov", MERI_FMT_ABC)
+MERI_OP(USUBOV, "usub.ov", MERI_FMT_ABC)
+MERI_OP(UMULOV, "umul.ov", MERI_FMT_ABC)
+MERI_OP(UADDOV32, "uadd.ov32", MERI_FMT_ABC)
+MERI_OP(USUBOV32, "usub.ov32", MERI_FMT_ABC)
+MERI_OP(UMULOV32, "umul.ov32", MERI_FMT_ABC)

@@ -14,6 +14,13 @@
  *   limba_verify first, as meri does; one made by the front end of Limba
  *   is valid as it is made, and verified too when asked (verify, always
  *   in the builds that are not release);
+ * - the module is trusted, as a precompiled chunk is in Lua: the verifier
+ *   checks its form, not that its memory accesses are safe. The checks of
+ *   nil, of a block alive and of the bounds are the IR's; without them an
+ *   access of nil in the first 64 KiB is MERI_BADMEM, and any other
+ *   unchecked access may crash the process or change memory of the
+ *   program or of Meri. A pointer of the program is checked before the C
+ *   library is given it;
  * - a function is compiled when it is given, and its body is not read
  *   again: the front end may free it right after (limba_func_clear).
  *   Every function, global and extern must be declared when the
@@ -109,7 +116,9 @@ typedef struct {
        terminated): raised with them, or a trap's made when a handler
        caught it and raised it again; valid until the program is run again
        or freed. NULL for a trap no handler saw (and a raise of the str
-       0): its words are those of the module or of traps.def */
+       0): its words are those of the module or of traps.def. With the
+       trap NOMEM before the first instruction, why the run could not
+       begin (the system limits its virtual memory) */
     const char *msg;
     size_t msglen;
 } meri_result;

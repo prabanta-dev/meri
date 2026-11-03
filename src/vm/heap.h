@@ -65,7 +65,9 @@ uint64_t meri_heap_charge(uint64_t n);
    program is counted by the caller, with meri_heap_charge) */
 uint64_t meri_heap_alloc(meri_heap *h, uint64_t n);
 /* free the block of p (0: nothing) and give its charge in *size; false
-   if p is not a block alive: the trap INVALID_FREE */
+   if p is not a block alive: the trap INVALID_FREE. A block at the last
+   generation of its address (STRICT) is retired instead: never given out
+   again, and *size is 0, its charge staying with the budget */
 bool meri_heap_free(meri_heap *h, uint64_t p, uint64_t *size);
 /* free everything */
 void meri_heap_clear(meri_heap *h);

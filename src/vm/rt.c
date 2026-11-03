@@ -158,6 +158,37 @@ void meri_state_free_strs(meri_state *s)
     free(s->strs);
     s->strs = NULL;
     s->nstrs = s->capstrs = 0;
+    for (i = 0; i < s->ntrapmsgs; i++)
+        free(s->trapmsgs[i].s);
+    free(s->trapmsgs);
+    s->trapmsgs = NULL;
+    s->ntrapmsgs = s->captrapmsgs = 0;
+}
+
+meri_str *meri_state_trap_words(meri_state *s, int64_t code)
+{
+    size_t i, n = 0;
+    const char *t;
+    meri_str *x;
+
+    for (i = 0; i < s->ntrapmsgs; i++)
+        if (s->trapmsgs[i].code == code)
+            return s->trapmsgs[i].s;
+    if (s->ntrapmsgs == s->captrapmsgs) {
+        size_t cap = s->captrapmsgs ? 2 * s->captrapmsgs : 8;
+        struct meri_trapmsg *m =
+            realloc(s->trapmsgs, cap * sizeof(*s->trapmsgs));
+        if (!m)
+            return NULL;
+        s->trapmsgs = m;
+        s->captrapmsgs = cap;
+    }
+    t = limba_trap_message(s->p->m, code, &n);
+    x = meri_str_new(t, t ? n : 0);
+    if (!x)
+        return NULL;
+    s->trapmsgs[s->ntrapmsgs++] = (struct meri_trapmsg){code, x};
+    return x;
 }
 
 static double dv(uint64_t v)
@@ -400,7 +431,12 @@ MERI_TOUCHES_PROGRAM static int console(meri_state *s, uint32_t id, uint64_t *a)
                    : STOP;
     case LIMBA_RT_READ_LINE: { /* (p) -> i1: the line at p, "" at the end */
         bool ok;
-        meri_str *x = line(s, &ok);
+        meri_str *x;
+        if (meri_mem_wrong(a[0], sizeof(uint64_t))) { /* before stdio */
+            s->status = MERI_BADMEM;
+            return STOP;
+        }
+        x = line(s, &ok);
         if (!x)
             return STOP;
         {
@@ -447,7 +483,11 @@ MERI_TOUCHES_PROGRAM static int strings(meri_state *s, uint32_t id, uint64_t *a)
                        (size_t)a[1])
                    ? DONE
                    : STOP;
-    case LIMBA_RT_CSTR_FREE:
+    case LIMBA_RT_CSTR_FREE: /* null: nothing, as free */
+        if (a[0] && meri_mem_wrong(a[0], 1)) {
+            s->status = MERI_BADMEM;
+            return STOP;
+        }
         free((void *)(uintptr_t)MERI_ADDR(a[0]));
         return DONE;
     case LIMBA_RT_STR_CONCAT: {

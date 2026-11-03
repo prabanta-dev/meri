@@ -669,22 +669,34 @@ static uint32_t branch(L *l, const limba_inst *t, bool when, uint32_t b)
 static unsigned int_op(unsigned op, unsigned bits)
 {
     static const uint8_t w64[LIMBA_OP_COUNT] = {
-        [LIMBA_OP_ADD] = MERI_OP_ADD,     [LIMBA_OP_SUB] = MERI_OP_SUB,
-        [LIMBA_OP_MUL] = MERI_OP_MUL,     [LIMBA_OP_ADDOV] = MERI_OP_ADDOV,
-        [LIMBA_OP_SUBOV] = MERI_OP_SUBOV, [LIMBA_OP_MULOV] = MERI_OP_MULOV,
-        [LIMBA_OP_SDIV] = MERI_OP_SDIV,   [LIMBA_OP_UDIV] = MERI_OP_UDIV,
-        [LIMBA_OP_SREM] = MERI_OP_SREM,   [LIMBA_OP_UREM] = MERI_OP_UREM,
-        [LIMBA_OP_SHL] = MERI_OP_SHL,     [LIMBA_OP_LSHR] = MERI_OP_LSHR,
-        [LIMBA_OP_ASHR] = MERI_OP_ASHR,   [LIMBA_OP_NEG] = MERI_OP_NEG,
+        [LIMBA_OP_ADD] = MERI_OP_ADD,       [LIMBA_OP_SUB] = MERI_OP_SUB,
+        [LIMBA_OP_MUL] = MERI_OP_MUL,       [LIMBA_OP_ADDOV] = MERI_OP_ADDOV,
+        [LIMBA_OP_SUBOV] = MERI_OP_SUBOV,   [LIMBA_OP_MULOV] = MERI_OP_MULOV,
+        [LIMBA_OP_SDIV] = MERI_OP_SDIV,     [LIMBA_OP_UDIV] = MERI_OP_UDIV,
+        [LIMBA_OP_SREM] = MERI_OP_SREM,     [LIMBA_OP_UREM] = MERI_OP_UREM,
+        [LIMBA_OP_SHL] = MERI_OP_SHL,       [LIMBA_OP_LSHR] = MERI_OP_LSHR,
+        [LIMBA_OP_ASHR] = MERI_OP_ASHR,     [LIMBA_OP_NEG] = MERI_OP_NEG,
+        [LIMBA_OP_UADDOV] = MERI_OP_UADDOV, [LIMBA_OP_USUBOV] = MERI_OP_USUBOV,
+        [LIMBA_OP_UMULOV] = MERI_OP_UMULOV,
     };
     static const uint8_t w32[LIMBA_OP_COUNT] = {
-        [LIMBA_OP_ADD] = MERI_OP_ADD32,     [LIMBA_OP_SUB] = MERI_OP_SUB32,
-        [LIMBA_OP_MUL] = MERI_OP_MUL32,     [LIMBA_OP_ADDOV] = MERI_OP_ADDOV32,
-        [LIMBA_OP_SUBOV] = MERI_OP_SUBOV32, [LIMBA_OP_MULOV] = MERI_OP_MULOV32,
-        [LIMBA_OP_SDIV] = MERI_OP_SDIV32,   [LIMBA_OP_UDIV] = MERI_OP_UDIV32,
-        [LIMBA_OP_SREM] = MERI_OP_SREM32,   [LIMBA_OP_UREM] = MERI_OP_UREM32,
-        [LIMBA_OP_SHL] = MERI_OP_SHL32,     [LIMBA_OP_LSHR] = MERI_OP_LSHR32,
-        [LIMBA_OP_ASHR] = MERI_OP_ASHR32,   [LIMBA_OP_NEG] = MERI_OP_NEG32,
+        [LIMBA_OP_ADD] = MERI_OP_ADD32,
+        [LIMBA_OP_SUB] = MERI_OP_SUB32,
+        [LIMBA_OP_MUL] = MERI_OP_MUL32,
+        [LIMBA_OP_ADDOV] = MERI_OP_ADDOV32,
+        [LIMBA_OP_SUBOV] = MERI_OP_SUBOV32,
+        [LIMBA_OP_MULOV] = MERI_OP_MULOV32,
+        [LIMBA_OP_SDIV] = MERI_OP_SDIV32,
+        [LIMBA_OP_UDIV] = MERI_OP_UDIV32,
+        [LIMBA_OP_SREM] = MERI_OP_SREM32,
+        [LIMBA_OP_UREM] = MERI_OP_UREM32,
+        [LIMBA_OP_SHL] = MERI_OP_SHL32,
+        [LIMBA_OP_LSHR] = MERI_OP_LSHR32,
+        [LIMBA_OP_ASHR] = MERI_OP_ASHR32,
+        [LIMBA_OP_NEG] = MERI_OP_NEG32,
+        [LIMBA_OP_UADDOV] = MERI_OP_UADDOV32,
+        [LIMBA_OP_USUBOV] = MERI_OP_USUBOV32,
+        [LIMBA_OP_UMULOV] = MERI_OP_UMULOV32,
     };
 
     return bits == 64 ? w64[op] : bits == 32 ? w32[op] : 0;
@@ -3389,6 +3401,12 @@ meri_program *meri_compile_begin(const limba_module *m, meri_diag *d)
     meri_program *p = calloc(1, sizeof(*p));
 
     d->msg[0] = 0;
+    if (m->ptr_bits != 64) { /* as lir_run: no target of 32 bits yet */
+        snprintf(d->msg, sizeof(d->msg),
+                 "pointers of %" PRIu32 " bits are not supported", m->ptr_bits);
+        free(p);
+        return NULL;
+    }
     if (!p || m->nfuncs > 0x10000 || m->nglobals > 0x10000) {
         snprintf(d->msg, sizeof(d->msg), "%s",
                  p ? "more than 65536 functions or globals" : "out of memory");

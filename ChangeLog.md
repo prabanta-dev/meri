@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+- IR version 9 (Limba `fe092ed`): `uadd.ov`, `usub.ov`, `umul.ov` (six
+  new instructions for 64 and 32 bits, `intn` for the narrower ones; the
+  trap OVERFLOW, which a handler catches); every shift counts modulo the
+  width of its type; a module whose pointers are not of 64 bits is
+  refused when it compiles.
+- The message a caught trap gives its handler is an immortal string, made
+  once a run for each code: no memory of the program, not among the
+  strings counted (progetto_ir.md § 11i).
+- A block of `mem_alloc` freed at the last generation of its address is
+  retired and its charge stays with the budget: before, it left the budget
+  while it stayed allocated.
+- The stacks of a run, where the system limits the virtual memory
+  (`vm.overcommit_memory=2`, `ulimit -v`): the area of the slots is
+  retried smaller; if not even that fits, the trap NOMEM says why
+  (`meri_result.msg`). New test `test_reserve`.
+- The rule of the C library (`rt.h`): a pointer of the program reaches a
+  function with a lock or a state (stdio, `free`) only after the check of
+  nil; now also in `read_line` and `cstr_free`.
+- README and `meri.h` say what Meri trusts: the module, as a precompiled
+  chunk is in Lua.
+- `test_vm`: "; compile:", "; max memory:", "; needs: slabs", "; run:
+  unsupported"; the accesses of Limba's cases outside every object alive
+  only must not crash.
+
 - `meri_report` prefixes the errors of the engine (unreachable, a bad
   `call.ind`, `MERI_BADMEM`, a bad entry, a trap of a module with no
   language) with the name of the program that runs it, as it gave it to

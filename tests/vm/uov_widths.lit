@@ -1,0 +1,93 @@
+; output: 255
+; output: 65535
+; output: 4294967295
+; output: 0
+; output: 18446744073709551615
+; output: 4294967295
+; output: 6 overflow
+; output: 6 overflow
+; output: 6 overflow
+; output: 6 overflow
+; result: 0
+; uadd.ov, usub.ov, umul.ov in each width (i8 and i16 through INTN, i32
+; and i64 in their own instructions): the edge fits, one past it is the
+; trap OVERFLOW (6), which a handler catches
+func @main : fn() -> i64 {
+b0:
+  v0 = iconst i8 200
+  v1 = iconst i8 55
+  v2 = uadd.ov i8 v0, v1
+  v3 = zext i64 v2
+  call.rt void print_i64(v3)
+  call.rt void print_nl()
+  v4 = iconst i16 -1
+  v5 = iconst i16 0
+  v6 = usub.ov i16 v4, v5
+  v7 = zext i64 v6
+  call.rt void print_i64(v7)
+  call.rt void print_nl()
+  v8 = iconst i32 65535
+  v9 = iconst i32 65537
+  v10 = umul.ov i32 v8, v9
+  v11 = zext i64 v10
+  call.rt void print_i64(v11)
+  call.rt void print_nl()
+  v12 = iconst i32 7
+  v13 = usub.ov i32 v12, v12
+  v14 = zext i64 v13
+  call.rt void print_i64(v14)
+  call.rt void print_nl()
+  v15 = iconst i64 -1
+  v16 = iconst i64 0
+  v17 = uadd.ov i64 v15, v16
+  call.rt void print_u64(v17)
+  call.rt void print_nl()
+  v18 = iconst i32 -2
+  v19 = iconst i32 1
+  v20 = uadd.ov i32 v18, v19
+  v21 = zext i64 v20
+  call.rt void print_i64(v21)
+  call.rt void print_nl()
+  br b1
+b1 handler b2:
+  v22 = iconst i8 1
+  v23 = uadd.ov i8 v0, v1
+  v24 = uadd.ov i8 v23, v22
+  ret v16
+b2(v25: i32, v26: i32, v27: str):
+  call void @show(v25, v27)
+  br b3
+b3 handler b4:
+  v28 = iconst i32 1
+  v29 = iconst i32 2
+  v30 = usub.ov i32 v28, v29
+  ret v16
+b4(v31: i32, v32: i32, v33: str):
+  call void @show(v31, v33)
+  br b5
+b5 handler b6:
+  v34 = iconst i64 4294967296
+  v35 = umul.ov i64 v34, v34
+  ret v16
+b6(v36: i32, v37: i32, v38: str):
+  call void @show(v36, v38)
+  br b7
+b7 handler b8:
+  v39 = iconst i32 -1
+  v40 = uadd.ov i32 v39, v19
+  ret v16
+b8(v41: i32, v42: i32, v43: str):
+  call void @show(v41, v43)
+  ret v16
+}
+
+func @show : fn(i32, str) -> void {
+b0(v0: i32, v1: str):
+  v2 = sext i64 v0
+  call.rt void print_i64(v2)
+  v3 = iconst i32 32
+  call.rt void print_char(v3)
+  call.rt void print_str(v1)
+  call.rt void print_nl()
+  ret
+}

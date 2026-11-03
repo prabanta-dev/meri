@@ -32,12 +32,24 @@
  *                       or before an access of memory, is missing (lir_run
  *                       calls the module wrong): Meri must stop with a
  *                       trap, whatever its code, or with MERI_BADMEM, never
- *                       crash nor go on
+ *                       crash nor go on. Except an access outside every
+ *                       object alive that is not nil (beyond[] below): Meri
+ *                       trusts the module there (README, "What Meri
+ *                       trusts"), and only must not crash
+ *   "; compile: <text>" meri_compile refuses the module, saying text
+ *   "; needs: slabs"    the small blocks in Meri's own arenas (not under
+ *                       AddressSanitizer, where every block is malloc's):
+ *                       skipped without them
+ *   "; max memory: <n>" the budget of the run in bytes (64 MiB if not said)
+ *   "; run: unsupported" the reference interpreter does not run it (memory
+ *                       fb, pointers of 32 bits): Meri may refuse it when it
+ *                       compiles, or run it; nothing else is checked
  * The program is compiled, disassembled (to nothing) and run.
  */
 #define _GNU_SOURCE
 #include "limba/ir.h"
 #include "vm/ffi.h"
+#include "vm/heap.h"
 #include "vm/vm.h"
 
 #include <dirent.h>
@@ -57,6 +69,28 @@ const char *__asan_default_options(void)
 #endif
 
 static int failures, cases, skipped;
+
+/* the cases of Limba whose wrong module is an access outside every object
+   alive, not nil: no promise of Meri but not to crash (test_vm runs them
+   in its own process: a crash is its end). Skipped under AddressSanitizer,
+   which stops at such an access by design */
+static const char *const beyond[] = {
+    "outside_freed.lit",
+    "outside_slot.lit",
+    "outside_string.lit",
+};
+
+static bool is_beyond(const char *path)
+{
+    const char *base = strrchr(path, '/');
+    size_t i;
+
+    base = base ? base + 1 : path;
+    for (i = 0; i < sizeof(beyond) / sizeof(beyond[0]); i++)
+        if (!strcmp(base, beyond[i]))
+            return true;
+    return false;
+}
 
 #define CHECK(cond, ...)                                                       \
     do {                                                                       \
@@ -97,12 +131,15 @@ typedef struct {
     int status;
     int64_t value; /* the trap code or the result */
     bool has_result, has_at, has_strings, has_refs, skip, any_trap;
-    char link[128];   /* the linking must fail with this in its message */
-    char report[256]; /* meri_report must write this line, if not empty */
-    char never[32];   /* no instruction of the bytecode is this one */
-    char msg[256];    /* the words of the exception not caught */
+    bool any_end;      /* run: unsupported, or a wrong module beyond[] */
+    char link[128];    /* the linking must fail with this in its message */
+    char report[256];  /* meri_report must write this line, if not empty */
+    char never[32];    /* no instruction of the bytecode is this one */
+    char compile[128]; /* meri_compile must refuse it with this */
+    char msg[256];     /* the words of the exception not caught */
     bool has_msg;
     uint64_t strings, refs;
+    uint64_t max_memory; /* 0: 64 MiB */
     unsigned line, col;
 } expect;
 
@@ -155,9 +192,19 @@ static void header(const char *text, expect *e)
             e->has_at = sscanf(p + 6, "%u:%u", &e->line, &e->col) == 2;
         } else if (!strncmp(p, "; memory: broken", 16)) {
             e->skip = true;
+        } else if (!strncmp(p, "; needs: slabs", 14)) {
+            e->skip |= !MERI_SLABS;
         } else if (!strncmp(p, "; module: wrong", 15)) {
             e->status = MERI_TRAP;
             e->any_trap = true;
+        } else if (!strncmp(p, "; compile: ", 11) &&
+                   n - 11 < sizeof(e->compile)) {
+            memcpy(e->compile, p + 11, n - 11);
+            e->compile[n - 11] = 0;
+        } else if (!strncmp(p, "; max memory: ", 14)) {
+            e->max_memory = strtoull(p + 14, NULL, 10);
+        } else if (!strncmp(p, "; run: unsupported", 18)) {
+            e->any_end = true;
         }
         if (!eol)
             break;
@@ -184,6 +231,10 @@ static void one(const char *path)
         return;
     }
     header(text, &e);
+    if (e.any_trap && is_beyond(path)) {
+        e.any_end = true;
+        e.skip |= !MERI_SLABS; /* AddressSanitizer */
+    }
     if (e.skip) {
         skipped++;
         free(text);
@@ -198,8 +249,12 @@ static void one(const char *path)
         return;
     }
     p = meri_compile(m, &md);
-    if (!p) {
-        CHECK(false, "%s: %s", path, md.msg);
+    if (!p || e.compile[0]) {
+        /* unsupported: refused when it compiles is an answer */
+        CHECK(e.compile[0] ? !p && strstr(md.msg, e.compile)
+                           : e.any_end && !e.any_trap,
+              "%s: %s", path, p ? "compiled" : md.msg);
+        meri_program_free(p);
         limba_module_free(m);
         return;
     }
@@ -237,10 +292,18 @@ static void one(const char *path)
         CHECK(false, "%s: no stream", path);
     } else {
         /* 64 MiB, as the tests of Limba: the cases of NOMEM stay small */
-        env = (meri_env){0, NULL, in, o, (uint64_t)64 << 20};
+        env = (meri_env){0, NULL, in, o,
+                         e.max_memory ? e.max_memory : (uint64_t)64 << 20};
         meri_run(p, "main", &env, &r);
         fclose(o);
         o = NULL;
+        if (e.any_end) { /* it ended, and did not crash: enough */
+            free(out);
+            fclose(in);
+            meri_program_free(p);
+            limba_module_free(m);
+            return;
+        }
         CHECK(r.status == e.status || (e.any_trap && r.status == MERI_BADMEM),
               "%s: ended with status %d, expected %d", path, r.status,
               e.status);

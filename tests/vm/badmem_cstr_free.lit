@@ -1,0 +1,12 @@
+; stops: badmem
+; cstr_free of a pointer in the first 64 KiB (nil and an offset): the C
+; library never gets it (rt.h, the rule of the C library), MERI_BADMEM
+func @main : fn() -> i64 {
+b0:
+  v0 = null ptr
+  v1 = iconst i64 64
+  v2 = addr ptr v0, v1, 1, 0
+  call.rt void cstr_free(v2)
+  v3 = iconst i64 0
+  ret v3
+}

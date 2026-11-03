@@ -34,6 +34,14 @@ typedef struct {
     /* the run stopped where no position is told: an error of the output,
        found at a later write or at the flush */
     bool nopos;
+    /* the message of each trap a handler caught, made once when first
+       caught: immortal, outside the budget and the strings counted
+       (progetto_ir.md § 11i), freed at the end of the run */
+    struct meri_trapmsg {
+        int64_t code;
+        meri_str *s;
+    } *trapmsgs;
+    size_t ntrapmsgs, captrapmsgs;
 } meri_state;
 
 /* n bytes more of the program's memory; false, and nothing counted, if
@@ -64,10 +72,23 @@ meri_str *meri_state_immortal(meri_state *s, const char *p, size_t n);
    at p */
 void meri_state_rc(meri_state *s, uint64_t p, limba_id t, uint64_t n, int d);
 void meri_state_free_strs(meri_state *s);
+/* the words of trap code as an immortal str (those of the module or of
+   traps.def, "" for none), made once a run: no memory of the program is
+   taken (§ 11i). NULL only when the process has no memory left */
+meri_str *meri_state_trap_words(meri_state *s, int64_t code);
 
 /* the memory of the program never lies in the first 64 KiB, nor wraps:
    n bytes from p there are an access the IR should have checked (nil),
-   a wrong module (MERI_BADMEM) */
+   a wrong module (MERI_BADMEM).
+
+   The rule of the C library: a pointer of the program goes to a function
+   of the C library that keeps a lock or a state (stdio, malloc and free)
+   only after meri_mem_wrong said it is not nil. A fault inside such a
+   function would leave the run through on_fault (interp.c) with the lock
+   taken or the state half changed. The functions without either
+   (memcpy, memchr, strlen) may fault: on_fault stops the run cleanly.
+   The external routines a program declares (call.ext) are its own: their
+   pointers go as the program gives them */
 #define MERI_LOW_MEM ((uint64_t)1 << 16)
 
 /* a function that touches the memory of the program through pointers the

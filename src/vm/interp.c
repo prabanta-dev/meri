@@ -61,6 +61,34 @@ static void *reserve(size_t bytes)
     return p == MAP_FAILED ? NULL : p;
 }
 
+/* the area of the slots: what the budget allows and its slack; where the
+   system limits the virtual memory (vm.overcommit_memory=2, ulimit -v),
+   the budget alone, then halves of it down to SLOT_MIN: the slots past it
+   are the trap STACK, as for any engine whose stack is smaller */
+#define SLOT_MIN ((uint64_t)1 << 20)
+static uint8_t *reserve_slots(uint64_t budget, size_t *n)
+{
+    uint64_t want =
+        budget < SLOT_MAX - SLOT_SLACK ? budget + SLOT_SLACK : SLOT_MAX;
+    uint8_t *p = reserve((size_t)want);
+
+    if (!p && budget < want) {
+        want = budget > SLOT_MIN ? budget : SLOT_MIN;
+        p = reserve((size_t)want);
+    }
+    while (!p && want > SLOT_MIN) {
+        want /= 2;
+        p = reserve((size_t)want);
+    }
+    *n = (size_t)want;
+    return p;
+}
+
+/* why a run could not begin, in meri_result.msg with the trap NOMEM */
+static const char no_reserve[] =
+    "cannot reserve the stacks of the run: the virtual memory is limited "
+    "(vm.overcommit_memory, ulimit -v)";
+
 /* ---- the profile of a run (-DMERI_PROFILE, never in a release) ---- */
 
 #ifdef MERI_PROFILE
@@ -263,6 +291,20 @@ static int64_t intn(unsigned op, unsigned bits, uint64_t a, uint64_t b,
             return LIMBA_TRAP_DIVZERO;
         *r = (uint64_t)(op == LIMBA_OP_SDIV ? sa / sb : sa % sb);
         break;
+    case LIMBA_OP_UADDOV:
+    case LIMBA_OP_USUBOV:
+    case LIMBA_OP_UMULOV: {
+        unsigned __int128 u = op == LIMBA_OP_UADDOV ? (unsigned __int128)ua + ub
+                              : op == LIMBA_OP_USUBOV
+                                  ? (unsigned __int128)ua - ub
+                                  : (unsigned __int128)ua * ub;
+        if (ua < ub && op == LIMBA_OP_USUBOV)
+            return LIMBA_TRAP_OVERFLOW;
+        if (u > mask)
+            return LIMBA_TRAP_OVERFLOW;
+        *r = (uint64_t)u;
+        break;
+    }
     default: /* add.ov, sub.ov, mul.ov */
         w = op == LIMBA_OP_ADDOV   ? (__int128)sa + sb
             : op == LIMBA_OP_SUBOV ? (__int128)sa - sb
@@ -540,14 +582,11 @@ static uint8_t *align_up(uint8_t *p, uint64_t a, const uint8_t *end)
     return q < (uintptr_t)p || q > (uintptr_t)end ? NULL : (uint8_t *)q;
 }
 
-/* the words of trap code as a str of the run with one reference (those
-   of the module or of traps.def, "" for none); 0 when memory is
-   exhausted */
+/* the words of trap code as an immortal str (meri_state_trap_words); 0
+   only when the process has no memory left */
 static uint64_t trap_words(meri_state *s, int64_t code)
 {
-    size_t n = 0;
-    const char *t = limba_trap_message(s->p->m, code, &n);
-    meri_str *x = meri_state_str(s, t, t ? n : 0);
+    meri_str *x = meri_state_trap_words(s, code);
 
     return x ? meri_str_value(x) : 0;
 }
@@ -801,6 +840,54 @@ op_LSHR32:
 op_ASHR32:
     RA = (uint64_t)((int64_t)RB >> ((uint32_t)RC % 32));
     NEXT;
+
+op_UADDOV: {
+    ip = pc - 1;
+    uint64_t v;
+    if (__builtin_add_overflow(RB, RC, &v))
+        TRAP(LIMBA_TRAP_OVERFLOW);
+    RA = v;
+    NEXT;
+}
+op_USUBOV: {
+    ip = pc - 1;
+    uint64_t v;
+    if (__builtin_sub_overflow(RB, RC, &v))
+        TRAP(LIMBA_TRAP_OVERFLOW);
+    RA = v;
+    NEXT;
+}
+op_UMULOV: {
+    ip = pc - 1;
+    uint64_t v;
+    if (__builtin_mul_overflow(RB, RC, &v))
+        TRAP(LIMBA_TRAP_OVERFLOW);
+    RA = v;
+    NEXT;
+}
+op_UADDOV32: {
+    ip = pc - 1;
+    uint64_t v = (uint64_t)(uint32_t)RB + (uint32_t)RC;
+    if (v > UINT32_MAX)
+        TRAP(LIMBA_TRAP_OVERFLOW);
+    RA = s32(v);
+    NEXT;
+}
+op_USUBOV32: {
+    ip = pc - 1;
+    if ((uint32_t)RB < (uint32_t)RC)
+        TRAP(LIMBA_TRAP_OVERFLOW);
+    RA = s32((uint64_t)((uint32_t)RB - (uint32_t)RC));
+    NEXT;
+}
+op_UMULOV32: {
+    ip = pc - 1;
+    uint64_t v = (uint64_t)(uint32_t)RB * (uint32_t)RC; /* two u32: fits */
+    if (v > UINT32_MAX)
+        TRAP(LIMBA_TRAP_OVERFLOW);
+    RA = s32(v);
+    NEXT;
+}
 
 op_INTN: {
     ip = pc - 1;
@@ -1935,8 +2022,7 @@ void meri_run(const meri_program *p, const char *entry, const meri_env *env,
 
     s.heap.tagged = p->m->memory == LIMBA_MEM_STRICT;
     s.budget = env->max_memory ? env->max_memory : meri_default_memory();
-    nslotmem = (size_t)(s.budget < SLOT_MAX - SLOT_SLACK ? s.budget + SLOT_SLACK
-                                                         : SLOT_MAX);
+    nslotmem = 0;
 
     memset(r, 0, sizeof(*r));
     free(p->excmsg); /* the message of the run before */
@@ -1947,11 +2033,16 @@ void meri_run(const meri_program *p, const char *entry, const meri_env *env,
     }
     globals = globals_new(&s);
     regs = reserve(REGS * sizeof(uint64_t));
-    slotmem = reserve(nslotmem);
     frames = reserve(FRAMES * sizeof(frame));
+    if (regs && frames)
+        slotmem = reserve_slots(s.budget, &nslotmem);
     if (!globals || !regs || !slotmem || !frames) {
         r->status = MERI_TRAP;
         r->code = LIMBA_TRAP_NOMEM;
+        if (globals) { /* the stacks, not the memory of the program */
+            r->msg = no_reserve;
+            r->msglen = sizeof(no_reserve) - 1;
+        }
     } else {
         run_guarded(&s, &p->fns[fid], globals, regs, slotmem, nslotmem, frames,
                     r);
