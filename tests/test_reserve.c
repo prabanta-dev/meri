@@ -7,7 +7,7 @@
  * In a child process with RLIMIT_AS a little above what it uses: with
  * room for the registers, the frames and a smaller area of slots, the run
  * goes on (meri_run retries the slots smaller); with no room even for the
- * registers, it is the trap NOMEM with the words of why. Not under the
+ * registers, it is MERI_NORESERVE, and meri_report says why. Not under the
  * sanitizers of addresses and threads, which need much more virtual
  * memory than any limit here leaves.
  */
@@ -51,30 +51,41 @@ static unsigned long long vm_now(void)
 }
 
 /* in a child: run p with the address space limited to what it has and
-   extra bytes more; 0 if it ended as expected (ok: returned 42; else the
-   trap NOMEM with "cannot reserve" in its words) */
-static int child(const meri_program *p, unsigned long long extra, int ok)
+   extra bytes more; 0 if it ended as expected (ok: returned 42; else
+   MERI_NORESERVE, the registers at least asked, and the report of it) */
+static int child(const limba_module *m, const meri_program *p,
+                 unsigned long long extra, int ok)
 {
     struct rlimit rl;
     meri_result r;
     FILE *out = fopen("/dev/null", "w");
+    char rep[256] = "";
+    FILE *rs = fmemopen(rep, sizeof(rep) - 1, "w");
 
-    if (!out)
+    if (!out || !rs)
         return 2;
     rl.rlim_cur = rl.rlim_max = vm_now() + extra;
     if (setrlimit(RLIMIT_AS, &rl))
         return 3;
-    meri_run(p, "main", &(meri_env){0, NULL, stdin, out, (uint64_t)1 << 30},
-             &r);
+    meri_run(
+        p, "main",
+        &(meri_env){.in = stdin, .out = out, .max_memory = (uint64_t)1 << 30},
+        &r);
     if (ok)
         return r.status == MERI_OK && r.ret == 42 ? 0 : 4;
-    return r.status == MERI_TRAP && r.code == LIMBA_TRAP_NOMEM && r.msg &&
-                   memmem(r.msg, r.msglen, "cannot reserve", 14)
+    if (r.status != MERI_NORESERVE || r.code < (int64_t)128 << 20)
+        return 5;
+    if (meri_report(m, &r, rs) != 1)
+        return 8;
+    fclose(rs);
+    return !strncmp(rep, "test_reserve: cannot reserve ", 29) &&
+                   strstr(rep, " for the run: the virtual memory is limited")
                ? 0
-               : 5;
+               : 9;
 }
 
-static int in_child(const meri_program *p, unsigned long long extra, int ok)
+static int in_child(const limba_module *m, const meri_program *p,
+                    unsigned long long extra, int ok)
 {
     int st = 0;
     pid_t pid = fork();
@@ -82,7 +93,7 @@ static int in_child(const meri_program *p, unsigned long long extra, int ok)
     if (pid < 0)
         return 6;
     if (!pid)
-        _exit(child(p, extra, ok));
+        _exit(child(m, p, extra, ok));
     if (waitpid(pid, &st, 0) != pid || !WIFEXITED(st))
         return 7;
     return WEXITSTATUS(st);
@@ -106,7 +117,7 @@ int main(void)
         fprintf(stderr, "test_reserve: IR refused: %s\n", d.msg);
         return 1;
     }
-    p = meri_compile(m, &md);
+    p = meri_compile(m, NULL, &md);
     if (!p) {
         fprintf(stderr, "test_reserve: not compiled: %s\n", md.msg);
         limba_module_free(m);
@@ -114,13 +125,13 @@ int main(void)
     }
     /* 400 MiB: the registers (128 MiB) and frames (48 MiB) fit, the
        slots only after the budget of 1 GiB is halved twice */
-    e = in_child(p, (unsigned long long)400 << 20, 1);
+    e = in_child(m, p, (unsigned long long)400 << 20, 1);
     if (e) {
         fprintf(stderr, "test_reserve: 400 MiB more: failure %d\n", e);
         failures++;
     }
     /* 64 MiB: not even the registers */
-    e = in_child(p, (unsigned long long)64 << 20, 0);
+    e = in_child(m, p, (unsigned long long)64 << 20, 0);
     if (e) {
         fprintf(stderr, "test_reserve: 64 MiB more: failure %d\n", e);
         failures++;

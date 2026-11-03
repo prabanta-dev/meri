@@ -10,11 +10,18 @@
 
 #include <errno.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 const char *meri_version(void)
 {
     return MERI_VERSION;
+}
+
+void meri_result_free(meri_result *r)
+{
+    free(r->msg);
+    *r = (meri_result){0};
 }
 
 void meri_flush(FILE *out, meri_result *r)
@@ -27,6 +34,7 @@ void meri_flush(FILE *out, meri_result *r)
            a trap, nor after 141 (the run already ended on a closed
            output: halt cannot give it) */
         int err = errno;
+        meri_result_free(r);
         *r = (meri_result){.status = err == EPIPE ? MERI_HALT : MERI_TRAP,
                            .code = err == EPIPE ? 141 : LIMBA_TRAP_IO};
     }
@@ -43,6 +51,7 @@ int meri_report(const limba_module *m, const meri_result *r, FILE *err)
 {
     const char *what = NULL, *prefix = limba_program(), *name = NULL;
     size_t wn = 0, pn = strlen(prefix), nn = 0;
+    char reserve[96];
 
     switch (r->status) {
     case MERI_OK:
@@ -73,6 +82,18 @@ int meri_report(const limba_module *m, const meri_result *r, FILE *err)
     case MERI_BADMEM:
         what = "wrong module: memory accessed with no check of nil";
         break;
+    case MERI_NORESERVE: {
+        double gib = (double)(uint64_t)r->code / (1u << 30);
+        if (gib >= 1)
+            snprintf(reserve, sizeof(reserve), "%.1f GiB", gib);
+        else
+            snprintf(reserve, sizeof(reserve), "%.0f MiB", gib * 1024);
+        fprintf(err,
+                "%.*s: cannot reserve %s for the run: the virtual memory is "
+                "limited (vm.overcommit_memory, ulimit -v)\n",
+                (int)pn, prefix, reserve);
+        return 1;
+    }
     }
     if (what && !wn && r->status != MERI_TRAP)
         wn = strlen(what);

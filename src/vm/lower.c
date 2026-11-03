@@ -3396,11 +3396,20 @@ static bool know_types(meri_program *p)
     return true;
 }
 
-meri_program *meri_compile_begin(const limba_module *m, meri_diag *d)
+meri_program *meri_compile_begin(const limba_module *m, const meri_options *o,
+                                 meri_diag *d)
 {
-    meri_program *p = calloc(1, sizeof(*p));
+    meri_program *p;
 
     d->msg[0] = 0;
+    if (o && o->engine != MERI_ENGINE_VM) {
+        snprintf(d->msg, sizeof(d->msg), "%s",
+                 o->engine == MERI_ENGINE_AOT
+                     ? "the engine aot is not in this Meri yet"
+                     : "no such engine");
+        return NULL;
+    }
+    p = calloc(1, sizeof(*p));
     if (m->ptr_bits != 64) { /* as lir_run: no target of 32 bits yet */
         snprintf(d->msg, sizeof(d->msg),
                  "pointers of %" PRIu32 " bits are not supported", m->ptr_bits);
@@ -3493,9 +3502,10 @@ bool meri_compile_end(meri_program *p, meri_diag *d)
     return p->ended;
 }
 
-meri_program *meri_compile(const limba_module *m, meri_diag *d)
+meri_program *meri_compile(const limba_module *m, const meri_options *o,
+                           meri_diag *d)
 {
-    meri_program *p = meri_compile_begin(m, d);
+    meri_program *p = meri_compile_begin(m, o, d);
     uint32_t i;
 
     if (!p)
@@ -3533,6 +3543,5 @@ void meri_program_free(meri_program *p)
     free(p->strs);
     free(p->str_ids);
     free(p->holds_str);
-    free(p->excmsg);
     free(p);
 }

@@ -59,7 +59,7 @@ int main(int argc, char **argv)
         limba_module_free(m);
         return 0;
     }
-    if (!(p = meri_compile(m, &md))) {
+    if (!(p = meri_compile(m, NULL, &md))) {
         printf("not compiled: %s\n", md.msg);
         limba_module_free(m);
         return 0;

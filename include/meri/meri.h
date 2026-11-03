@@ -35,7 +35,11 @@
  * - a write to a closed output is the status 141 only if SIGPIPE is
  *   ignored (progetto_ir.md § 11g): the user ignores it before the run;
  * - out of memory while compiling is an error (meri_diag); while running,
- *   the trap NOMEM of the program.
+ *   the trap NOMEM of the program;
+ * - the engine is chosen when the compilation begins (meri_options);
+ * - a program does not change once compiled and linked: meri_run only
+ *   reads it, and what a run gives back (the words of an exception) is the
+ *   result's, freed by meri_result_free.
  */
 #ifndef MERI_MERI_H
 #define MERI_MERI_H
@@ -58,13 +62,28 @@ typedef struct {
 /* the version of this Meri, as meri --version prints it */
 const char *meri_version(void);
 
-/* compile a verified module whole; NULL and d filled if a function
-   exceeds a limit of the engine or memory is exhausted */
-meri_program *meri_compile(const limba_module *m, meri_diag *d);
+/* the engines a program may be compiled for */
+enum meri_engine {
+    MERI_ENGINE_VM,  /* the interpreter of the bytecode */
+    MERI_ENGINE_AOT, /* machine code made when the program is compiled:
+                        not in this Meri yet, an error of the compilation */
+};
+
+/* how to compile: NULL, or every field 0, for the defaults */
+typedef struct {
+    int engine; /* enum meri_engine; 0: the VM */
+} meri_options;
+
+/* compile a verified module whole; NULL and d filled if the engine is not
+   in this Meri, a function exceeds a limit of the engine or memory is
+   exhausted */
+meri_program *meri_compile(const limba_module *m, const meri_options *o,
+                           meri_diag *d);
 
 /* the same a function at a time. begin when the module is declared;
    NULL and d filled on failure */
-meri_program *meri_compile_begin(const limba_module *m, meri_diag *d);
+meri_program *meri_compile_begin(const limba_module *m, const meri_options *o,
+                                 meri_diag *d);
 /* function fid of the module, complete and verified: any order, each
    once. false and d filled on failure: then only meri_program_free */
 bool meri_compile_func(meri_program *p, limba_id fid, meri_diag *d);
@@ -101,6 +120,10 @@ enum meri_status {
     MERI_BADMEM,      /* memory touched in its first 64 KiB, or past its
                          end, by an access the IR should have checked
                          first (nil): a wrong module, never a crash */
+    MERI_NORESERVE,   /* the stacks of the run could not be reserved, even
+                         smaller (code: the bytes last asked): the system
+                         limits the virtual memory (vm.overcommit_memory=2,
+                         ulimit -v). Nothing of the program ran */
 };
 
 typedef struct {
@@ -114,14 +137,16 @@ typedef struct {
     uint64_t live_refs; /* the same for the numbers of BigInt */
     /* the words of an exception no handler caught (msglen bytes, not
        terminated): raised with them, or a trap's made when a handler
-       caught it and raised it again; valid until the program is run again
-       or freed. NULL for a trap no handler saw (and a raise of the str
-       0): its words are those of the module or of traps.def. With the
-       trap NOMEM before the first instruction, why the run could not
-       begin (the system limits its virtual memory) */
-    const char *msg;
+       caught it and raised it again. The result's own: meri_result_free
+       frees it. NULL for a trap no handler saw (and a raise of the str
+       0): its words are those of the module or of traps.def */
+    char *msg;
     size_t msglen;
 } meri_result;
+
+/* free what a result owns (msg) and zero it; any number of times. A
+   result is freed before meri_run fills it again */
+void meri_result_free(meri_result *r);
 
 typedef struct {
     int argc; /* the arguments of the program, without its name */
@@ -132,12 +157,17 @@ typedef struct {
        globals and the slots of the calls alive; past it, the trap NOMEM,
        never a crash. 0 for meri_default_memory() */
     uint64_t max_memory;
+    /* the workers of a par_for, at most 255 (more are 255); 0: the
+       cores, at most 255. This Meri runs a par_for in sequence, whatever
+       the number */
+    unsigned threads;
 } meri_env;
 
 /* the budget of a run by default: half of the physical memory */
 uint64_t meri_default_memory(void);
 
-/* run the function called entry (no parameters, no result used) */
+/* run the function called entry (no parameters, no result used); p is
+   only read. r is filled whole: what it owned before is not freed */
 void meri_run(const meri_program *p, const char *entry, const meri_env *env,
               meri_result *r);
 
@@ -149,8 +179,8 @@ void meri_flush(FILE *out, meri_result *r);
 /* how the run ended, on err: nothing when it returned or halted; a trap
    or an exception not caught in the words and the language of the module,
    with its position; an error of the engine (unreachable, a bad call.ind,
-   MERI_BADMEM...) prefixed with the name the program gave Limba
-   (limba_set_program), as for a trap of a module with no language. The
+   MERI_BADMEM, MERI_NORESERVE...) prefixed with the name the program gave
+   Limba (limba_set_program), as for a trap of a module with no language. The
    exit status of the process: 0, the code of halt, or 1 */
 int meri_report(const limba_module *m, const meri_result *r, FILE *err);
 

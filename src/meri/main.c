@@ -182,7 +182,7 @@ int main(int argc, char **argv)
         return 0;
     }
 
-    p = meri_compile(m, &md);
+    p = meri_compile(m, NULL, &md);
     if (!p) {
         fprintf(stderr, "meri: %s: %s\n", input, md.msg);
         limba_module_free(m);
@@ -204,10 +204,15 @@ int main(int argc, char **argv)
 
     /* a closed output is EPIPE at the write, not a signal (§ 11g) */
     signal(SIGPIPE, SIG_IGN);
-    env = (meri_env){argc - i, argv + i, stdin, stdout, max_memory};
+    env = (meri_env){.argc = argc - i,
+                     .argv = argv + i,
+                     .in = stdin,
+                     .out = stdout,
+                     .max_memory = max_memory};
     meri_run(p, "main", &env, &r);
     meri_flush(stdout, &r);
     status = meri_report(m, &r, stderr);
+    meri_result_free(&r);
     meri_program_free(p);
     limba_module_free(m);
     return status;

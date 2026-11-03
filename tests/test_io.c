@@ -125,13 +125,14 @@ static bool run(const char *name, const char *text, FILE *in, FILE *out,
         limba_module_free(m);
         return false;
     }
-    p = meri_compile(m, &md);
+    p = meri_compile(m, NULL, &md);
     if (!p) {
         CHECK(false, "%s: %s", name, md.msg);
         limba_module_free(m);
         return false;
     }
-    env = (meri_env){0, NULL, in, out, (uint64_t)64 << 20};
+    env = (meri_env){.in = in, .out = out, .max_memory = (uint64_t)64 << 20};
+    meri_result_free(r); /* the case before's */
     meri_run(p, "main", &env, r);
     meri_program_free(p);
     limba_module_free(m);
@@ -140,7 +141,7 @@ static bool run(const char *name, const char *text, FILE *in, FILE *out,
 
 int main(void)
 {
-    meri_result r;
+    meri_result r = {0};
     FILE *in, *out;
     char buf[64];
     size_t i;
@@ -247,6 +248,7 @@ int main(void)
         fclose(out);
     if (in)
         fclose(in);
+    meri_result_free(&r);
 
     printf("test_io: %d cases, %d failures\n", cases, failures);
     return failures != 0;

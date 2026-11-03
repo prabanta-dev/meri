@@ -221,7 +221,7 @@ static void one(const char *path)
     limba_module *m;
     meri_program *p;
     meri_diag md;
-    meri_result r;
+    meri_result r = {0};
     meri_env env;
     expect e;
     FILE *null, *o, *in;
@@ -248,7 +248,7 @@ static void one(const char *path)
         limba_module_free(m);
         return;
     }
-    p = meri_compile(m, &md);
+    p = meri_compile(m, NULL, &md);
     if (!p || e.compile[0]) {
         /* unsupported: refused when it compiles is an answer */
         CHECK(e.compile[0] ? !p && strstr(md.msg, e.compile)
@@ -292,12 +292,15 @@ static void one(const char *path)
         CHECK(false, "%s: no stream", path);
     } else {
         /* 64 MiB, as the tests of Limba: the cases of NOMEM stay small */
-        env = (meri_env){0, NULL, in, o,
-                         e.max_memory ? e.max_memory : (uint64_t)64 << 20};
+        env = (meri_env){.in = in,
+                         .out = o,
+                         .max_memory =
+                             e.max_memory ? e.max_memory : (uint64_t)64 << 20};
         meri_run(p, "main", &env, &r);
         fclose(o);
         o = NULL;
         if (e.any_end) { /* it ended, and did not crash: enough */
+            meri_result_free(&r);
             free(out);
             fclose(in);
             meri_program_free(p);
@@ -354,6 +357,7 @@ static void one(const char *path)
     if (in)
         fclose(in);
     free(out);
+    meri_result_free(&r);
     meri_program_free(p);
     limba_module_free(m);
 }

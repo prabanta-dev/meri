@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- The API changed once, before the first engine of machine code (the
+  compatibility with the published one is not kept):
+  - `meri_compile` and `meri_compile_begin` take `meri_options`, the
+    engine chosen when the compilation begins (`MERI_ENGINE_VM`, the
+    default for NULL; `MERI_ENGINE_AOT` is an error until it exists);
+  - `meri_result.msg` is the result's own, freed by `meri_result_free`:
+    the program is never written by a run (`excmsg` is gone);
+  - `meri_env.threads`, the workers of a `par_for` (at most 255; 0 the
+    cores), still run in sequence;
+  - `MERI_NORESERVE`: the stacks of the run could not be reserved even
+    smaller, its code the bytes last asked, and `meri_report` says so (it
+    was the trap NOMEM with the words in `meri_result.msg`).
+  New test `test_api`.
+
 - IR version 9 (Limba `fe092ed`): `uadd.ov`, `usub.ov`, `umul.ov` (six
   new instructions for 64 and 32 bits, `intn` for the narrower ones; the
   trap OVERFLOW, which a handler catches); every shift counts modulo the

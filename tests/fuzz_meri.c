@@ -42,7 +42,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
     if (!m)
         m = limba_parse((const char *)data, size, NULL);
     if (m && limba_verify(m, NULL) == 0) {
-        p = meri_compile(m, &d);
+        p = meri_compile(m, NULL, &d);
         if (p && null)
             meri_disasm(p, null);
         meri_program_free(p);

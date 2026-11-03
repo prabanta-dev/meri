@@ -84,11 +84,6 @@ static uint8_t *reserve_slots(uint64_t budget, size_t *n)
     return p;
 }
 
-/* why a run could not begin, in meri_result.msg with the trap NOMEM */
-static const char no_reserve[] =
-    "cannot reserve the stacks of the run: the virtual memory is limited "
-    "(vm.overcommit_memory, ulimit -v)";
-
 /* ---- the profile of a run (-DMERI_PROFILE, never in a release) ---- */
 
 #ifdef MERI_PROFILE
@@ -1949,10 +1944,8 @@ uncaught: /* the exception ends the run */
     if (xmade) {
         const meri_str *t = meri_str_of(xmsg);
         char *copy = malloc(t->len + 1);
-        if (copy) {
+        if (copy) { /* the result's: meri_result_free */
             memcpy(copy, t->data, t->len);
-            free(p->excmsg);
-            ((meri_program *)p)->excmsg = copy; /* Meri's: see vm.h */
             r->msg = copy;
             r->msglen = t->len;
         }
@@ -2025,8 +2018,6 @@ void meri_run(const meri_program *p, const char *entry, const meri_env *env,
     nslotmem = 0;
 
     memset(r, 0, sizeof(*r));
-    free(p->excmsg); /* the message of the run before */
-    ((meri_program *)p)->excmsg = NULL;
     if (!p->ended || fid == LIMBA_NONE || p->fns[fid].nparams != 0) {
         r->status = MERI_BADENTRY;
         return;
@@ -2034,15 +2025,16 @@ void meri_run(const meri_program *p, const char *entry, const meri_env *env,
     globals = globals_new(&s);
     regs = reserve(REGS * sizeof(uint64_t));
     frames = reserve(FRAMES * sizeof(frame));
-    if (regs && frames)
-        slotmem = reserve_slots(s.budget, &nslotmem);
-    if (!globals || !regs || !slotmem || !frames) {
+    slotmem = reserve_slots(s.budget, &nslotmem);
+    if (!globals) {
         r->status = MERI_TRAP;
         r->code = LIMBA_TRAP_NOMEM;
-        if (globals) { /* the stacks, not the memory of the program */
-            r->msg = no_reserve;
-            r->msglen = sizeof(no_reserve) - 1;
-        }
+    } else if (!regs || !slotmem || !frames) {
+        /* the stacks, not the memory of the program: the bytes of the
+           last try */
+        r->status = MERI_NORESERVE;
+        r->code = (int64_t)(REGS * sizeof(uint64_t) + nslotmem +
+                            FRAMES * sizeof(frame));
     } else {
         run_guarded(&s, &p->fns[fid], globals, regs, slotmem, nslotmem, frames,
                     r);

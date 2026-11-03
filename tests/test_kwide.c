@@ -252,7 +252,7 @@ static void run_one(const prog *g, const char *expect)
         limba_module_free(m);
         return;
     }
-    p = meri_compile(m, &md);
+    p = meri_compile(m, NULL, &md);
     CHECK(p, "not compiled: %s", md.msg);
     if (!p) {
         limba_module_free(m);
@@ -265,13 +265,14 @@ static void run_one(const prog *g, const char *expect)
     CHECK(all_in(db, g->hasnt, false), "the disassembly has one of: %s",
           g->hasnt);
     out = open_memstream(&ob, &on);
-    meri_run(p, "main", &(meri_env){0, NULL, stdin, out, 0}, &r);
+    meri_run(p, "main", &(meri_env){.in = stdin, .out = out}, &r);
     meri_flush(out, &r);
     fclose(out);
     CHECK(r.status == g->status, "status %d, not %d", r.status, g->status);
     CHECK(g->status != MERI_TRAP || r.code == g->code,
           "trap %" PRId64 ", not %" PRId64, r.code, g->code);
     CHECK(!strcmp(ob, expect), "printed \"%s\", not \"%s\"", ob, expect);
+    meri_result_free(&r);
     free(ob);
     free(db);
     meri_program_free(p);

@@ -85,8 +85,10 @@ of the program are checked before the C library is given them.
 `include/meri/meri.h` is Meri for another program: a module of the IR
 compiled whole, or a function at a time as a front end gives it (Luxia's
 `limba/limba_luxia.h`), each body read once, while it is still there;
-the C libraries linked; the run; its end flushed and reported as `meri`
-reports it. Luxia's `tests/test_meri_api.c` uses that header only, fed by
+the engine chosen when the compilation begins (`meri_options`); the C
+libraries linked; the run, which only reads the program; its end flushed
+and reported as `meri` reports it, the result owning what it holds
+(`meri_result_free`). Luxia's `tests/test_meri_api.c` uses that header only, fed by
 the front end of Luxia.
 
 ## Building
