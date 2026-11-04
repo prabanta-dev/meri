@@ -42,6 +42,11 @@ typedef struct {
         meri_str *s;
     } *trapmsgs;
     size_t ntrapmsgs, captrapmsgs;
+    /* the words of the trap a call of the run time stopped with, when it
+       makes them (file_open...): a str of the run with one reference, the
+       exception's from then on; 0 for the words of traps.def */
+    uint64_t trap_msg;
+    struct meri_files *files; /* the files of the run (files.h), or NULL */
 } meri_state;
 
 /* n bytes more of the program's memory; false, and nothing counted, if

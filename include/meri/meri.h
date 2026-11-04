@@ -32,6 +32,11 @@
  *   the run, meri_flush finds the errors of the output still in its
  *   buffer, and meri_report says how the run ended, prefixed with the
  *   name of the program (limba_set_program) where the module has none;
+ * - the files of a program (file_open ... of runtime.def) are the run's
+ *   own: opened by name, as the process sees it (its current directory),
+ *   with open(2) and buffers of their own outside the budget, and every
+ *   one still open written and closed when the run ends; an error there,
+ *   after a run that returned or halted, is the trap IO with no position;
  * - a write to a closed output is the status 141 only if SIGPIPE is
  *   ignored (progetto_ir.md § 11g): the user ignores it before the run;
  * - out of memory while compiling is an error (meri_diag); while running,
@@ -177,8 +182,9 @@ void meri_run(const meri_program *p, const char *entry, const meri_env *env,
 void meri_flush(FILE *out, meri_result *r);
 
 /* how the run ended, on err: nothing when it returned or halted; a trap
-   or an exception not caught in the words and the language of the module,
-   with its position; an error of the engine (unreachable, a bad call.ind,
+   or an exception not caught as Limba words it for every engine
+   (limba_report_uncaught: the language of the module, the name, the
+   words, the position); an error of the engine (unreachable, a bad call.ind,
    MERI_BADMEM, MERI_NORESERVE...) prefixed with the name the program gave
    Limba (limba_set_program), as for a trap of a module with no language. The
    exit status of the process: 0, the code of halt, or 1 */

@@ -40,17 +40,16 @@ void meri_flush(FILE *out, meri_result *r)
     }
 }
 
-/* a trap, or an exception no handler caught (progetto_ir.md § 11i), is
-   worded as the reference interpreter words it: the language of the
-   module as the prefix, the name the module gives the identity, the
-   message (raised with it, or the text of the module or of traps.def for
-   a trap), the position; everything else is the engine's own, prefixed
-   with the name of the program that runs it (limba_program: "meri" for
-   meri, "luxia" in luxia) */
+/* a trap, or an exception no handler caught (doc/ir.md § 13.7), is
+   worded by Limba, as in every engine (limba_report_uncaught): the
+   language of the module as the prefix, the name the module gives the
+   identity, the message (raised with it, or the text of the module or of
+   traps.def for a trap), the position; everything else is the engine's
+   own, prefixed with the name of the program that runs it (limba_program:
+   "meri" for meri, "luxia" in luxia) */
 int meri_report(const limba_module *m, const meri_result *r, FILE *err)
 {
-    const char *what = NULL, *prefix = limba_program(), *name = NULL;
-    size_t wn = 0, pn = strlen(prefix), nn = 0;
+    const char *what = NULL, *prefix = limba_program();
     char reserve[96];
 
     switch (r->status) {
@@ -59,14 +58,8 @@ int meri_report(const limba_module *m, const meri_result *r, FILE *err)
     case MERI_HALT:
         return (int)r->code;
     case MERI_TRAP:
-        name = limba_exception_name(m, r->code, &nn);
-        what = r->msg;
-        wn = r->msglen;
-        if (!what || (!wn && !name)) /* a trap, or raised with no words */
-            what = limba_trap_message(m, r->code, &wn);
-        if (m->language != LIMBA_NONE)
-            prefix = limba_str(m, m->language, &pn);
-        break;
+        limba_report_uncaught(m, r->code, r->msg, r->msglen, r->pos, err);
+        return 1;
     case MERI_UNREACHABLE:
         what = "unreachable executed";
         break;
@@ -89,33 +82,21 @@ int meri_report(const limba_module *m, const meri_result *r, FILE *err)
         else
             snprintf(reserve, sizeof(reserve), "%.0f MiB", gib * 1024);
         fprintf(err,
-                "%.*s: cannot reserve %s for the run: the virtual memory is "
+                "%s: cannot reserve %s for the run: the virtual memory is "
                 "limited (vm.overcommit_memory, ulimit -v)\n",
-                (int)pn, prefix, reserve);
+                prefix, reserve);
         return 1;
     }
+    default:
+        fprintf(err, "%s: run-time error %lld\n", prefix, (long long)r->code);
+        return 1;
     }
-    if (what && !wn && r->status != MERI_TRAP)
-        wn = strlen(what);
-    if (name) {
-        fprintf(err, "%.*s: %.*s", (int)pn, prefix, (int)nn, name);
-        if (what && wn)
-            fprintf(err, ": %.*s", (int)wn, what);
-    } else if (what && wn) {
-        fprintf(err, "%.*s: %.*s", (int)pn, prefix, (int)wn, what);
-    } else if (r->status == MERI_TRAP) {
-        fprintf(err, "%.*s: exception %lld", (int)pn, prefix,
-                (long long)r->code);
-    } else {
-        fprintf(err, "%.*s: run-time error %lld", (int)pn, prefix,
-                (long long)r->code);
-    }
+    fprintf(err, "%s: %s", prefix, what);
     if (r->pos && r->pos <= m->npos) {
-        const limba_pos *p = &m->pos[r->pos - 1];
-        size_t n;
-        const char *file = limba_str(m, p->file, &n);
-        fprintf(err, " at %.*s:%u:%u", (int)n, file, (unsigned)p->line,
-                (unsigned)p->col);
+        char at[512];
+        size_t n = limba_pos_print(m, r->pos, at, sizeof(at));
+        fprintf(err, " at %.*s", (int)(n < sizeof(at) ? n : sizeof(at) - 1),
+                at);
     }
     fputc('\n', err);
     return 1;

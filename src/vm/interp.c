@@ -16,6 +16,7 @@
 #include "vm/code.h"
 #include "vm/lower.h"
 #include "vm/big.h"
+#include "vm/files.h"
 #include "vm/ffi.h"
 #include "vm/rt.h"
 #include "vm/vm.h"
@@ -1484,8 +1485,11 @@ op_FMATH: { /* Limba's library but where IEEE 754 is exact (math.h) */
     case LIMBA_RT_MATH_FLOOR:
         v = floor(v);
         break;
-    default: /* ceil */
+    case LIMBA_RT_MATH_CEIL:
         v = ceil(v);
+        break;
+    default: /* the others of one real: asin ... tanh */
+        limba_math_call(MERI_W_C(w), &v, &v);
     }
     RA = db(v);
     NEXT;
@@ -1911,8 +1915,9 @@ trap:
         xcode = code;
         xpos = fn->pos ? fn->pos[ip - fn->code] : 0;
         xgiven = false;
-        xmade = false;
-        xmsg = 0;
+        xmsg = s->trap_msg; /* the words a call made, if it made them */
+        xmade = xmsg != 0;
+        s->trap_msg = 0;
         goto raise;
     }
     r->status = MERI_TRAP;
@@ -2038,6 +2043,15 @@ void meri_run(const meri_program *p, const char *entry, const meri_env *env,
     } else {
         run_guarded(&s, &p->fns[fid], globals, regs, slotmem, nslotmem, frames,
                     r);
+    }
+    /* the files still open, written and closed whatever the end; an error
+       there after an end of its own (returned, halt) is the trap IO with
+       no position, as one of the output (doc/ir.md § 15.11) */
+    if (!meri_files_end(&s) &&
+        (r->status == MERI_OK || r->status == MERI_HALT)) {
+        r->status = MERI_TRAP;
+        r->code = LIMBA_TRAP_IO;
+        r->pos = 0;
     }
     if (regs)
         munmap(regs, REGS * sizeof(uint64_t));

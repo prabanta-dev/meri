@@ -10,6 +10,7 @@
 #include "vm/rt.h"
 
 #include "vm/big.h"
+#include "vm/files.h"
 
 #include "limba/fmt.h"
 #include "limba/math.h"
@@ -607,6 +608,33 @@ static bool maths(uint32_t id, uint64_t *a)
     case LIMBA_RT_MATH_POW:
         r = limba_math_pow(x, dv(a[1]));
         break;
+    case LIMBA_RT_MATH_ATAN2:
+        r = limba_math_atan2(x, dv(a[1]));
+        break;
+    case LIMBA_RT_MATH_HYPOT:
+        r = limba_math_hypot(x, dv(a[1]));
+        break;
+    case LIMBA_RT_MATH_ASIN:
+        r = limba_math_asin(x);
+        break;
+    case LIMBA_RT_MATH_ACOS:
+        r = limba_math_acos(x);
+        break;
+    case LIMBA_RT_MATH_LOG2:
+        r = limba_math_log2(x);
+        break;
+    case LIMBA_RT_MATH_LOG10:
+        r = limba_math_log10(x);
+        break;
+    case LIMBA_RT_MATH_SINH:
+        r = limba_math_sinh(x);
+        break;
+    case LIMBA_RT_MATH_COSH:
+        r = limba_math_cosh(x);
+        break;
+    case LIMBA_RT_MATH_TANH:
+        r = limba_math_tanh(x);
+        break;
     default:
         return false;
     }
@@ -739,6 +767,8 @@ bool meri_rt_call(meri_state *s, uint32_t id, uint64_t *a)
     if (maths(id, a))
         return true;
     if ((r = meri_big_call(s, id, a)) >= 0)
+        return r == 1;
+    if ((r = meri_files_call(s, id, a)) >= 0)
         return r == 1;
     if ((r = console(s, id, a)) == NOT_MINE &&
         (r = strings(s, id, a)) == NOT_MINE)

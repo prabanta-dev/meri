@@ -57,6 +57,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 
 /* under AddressSanitizer, the handler of the faults of a run (meri_run:
    an access of nil is MERI_BADMEM) is Meri's, not the sanitizer's */
@@ -321,10 +322,17 @@ static void one(const char *path)
         CHECK(!e.has_strings || r.live_strings == e.strings,
               "%s: %" PRIu64 " strings alive at the end, expected %" PRIu64,
               path, r.live_strings, e.strings);
-        CHECK(!e.has_msg || (r.msg && r.msglen == strlen(e.msg) &&
-                             !memcmp(r.msg, e.msg, r.msglen)),
-              "%s: the words \"%.*s\", expected \"%s\"", path,
-              r.msg ? (int)r.msglen : 0, r.msg ? r.msg : "", e.msg);
+        if (e.has_msg) {
+            /* the words of the occurrence: NULL is those of the module or
+               of traps.def (meri.h), as Limba's cases write them */
+            size_t wn = r.msglen;
+            const char *w = r.msg;
+            if (!w && r.status == MERI_TRAP)
+                w = limba_trap_message(m, r.code, &wn);
+            CHECK(w && wn == strlen(e.msg) && !memcmp(w, e.msg, wn),
+                  "%s: the words \"%.*s\", expected \"%s\"", path,
+                  w ? (int)wn : 0, w ? w : "", e.msg);
+        }
         CHECK(!e.has_refs || r.live_refs == e.refs,
               "%s: %" PRIu64 " BigInts alive at the end, expected %" PRIu64,
               path, r.live_refs, e.refs);
@@ -332,6 +340,11 @@ static void one(const char *path)
             char *rep = NULL;
             size_t replen = 0;
             FILE *rs = open_memstream(&rep, &replen);
+            /* Limba's cases name their program test_eval */
+            if (!strncmp(e.report, "test_eval: ", 11)) {
+                memmove(e.report + 9, e.report + 11, strlen(e.report + 11) + 1);
+                memcpy(e.report, "test_vm: ", 9);
+            }
             if (rs) {
                 meri_report(m, &r, rs);
                 fclose(rs);
@@ -409,6 +422,9 @@ static void dir(const char *path)
 int main(void)
 {
     limba_set_program("test_vm");
+    /* the files of the cases (Limba's write in lib/eval_files) */
+    mkdir("lib", 0777);
+    mkdir("lib/eval_files", 0777);
     dir("tests/vm");
     dir(MERI_LIMBA_DIR "/tests/eval");
     printf("test_vm: %d cases, %d skipped, %d failures\n", cases, skipped,

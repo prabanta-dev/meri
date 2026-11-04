@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- The run time of Limba `8c7da6f` (the table of runtime.def grows, so a
+  `.lir` made before is refused):
+  - the files: `file_open` ... `file_delete`, as the reference
+    interpreter runs them (open(2), handles from 1 never given again, at
+    most 256 open, a buffer of 65 536 bytes each written with write(2),
+    outside the budget; the trap IO with words the call makes, the trap
+    109 for a handle not open; every file written and closed at the end
+    of the run, an error there the trap IO with no position);
+  - `pos_str`, a new string in the budget;
+  - `math_atan2`, `math_asin`, `math_acos`, `math_hypot`, `math_log2`,
+    `math_log10`, `math_sinh`, `math_cosh`, `math_tanh` from Limba's
+    library, the ones of one real also as `fmath`;
+  - `meri_report` words a trap or an exception not caught with
+    `limba_report_uncaught`, the same line as every engine.
+  `test_vm` runs Limba's new cases (the files in `lib/eval_files`), and
+  four of its own (`file_*`).
+
 - The API changed once, before the first engine of machine code (the
   compatibility with the published one is not kept):
   - `meri_compile` and `meri_compile_begin` take `meri_options`, the

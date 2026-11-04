@@ -1239,6 +1239,13 @@ static bool math1(L *l, uint32_t id, const limba_inst *in)
     case LIMBA_RT_MATH_TRUNC:
     case LIMBA_RT_MATH_FLOOR:
     case LIMBA_RT_MATH_CEIL:
+    case LIMBA_RT_MATH_ASIN:
+    case LIMBA_RT_MATH_ACOS:
+    case LIMBA_RT_MATH_LOG2:
+    case LIMBA_RT_MATH_LOG10:
+    case LIMBA_RT_MATH_SINH:
+    case LIMBA_RT_MATH_COSH:
+    case LIMBA_RT_MATH_TANH:
         break;
     default:
         return false;
