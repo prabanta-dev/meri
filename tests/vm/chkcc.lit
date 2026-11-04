@@ -1,33 +1,45 @@
 ; output: 1
-; trap: 49
+; trap: 1049
 ; check (icmp cc a, b) is one instruction (CHKCC): every comparison
 ; that holds, signed and unsigned, then an unsigned one that does not
+; (the codes are exceptions of the table, one for each check)
+exception 1040 "Check40"
+exception 1041 "Check41"
+exception 1042 "Check42"
+exception 1043 "Check43"
+exception 1044 "Check44"
+exception 1045 "Check45"
+exception 1046 "Check46"
+exception 1047 "Check47"
+exception 1048 "Check48"
+exception 1049 "Check49"
+
 func @main : fn() -> i64 {
 b0:
   v0 = iconst i64 -1
   v1 = iconst i64 1
   v2 = iconst i64 -2
   v3 = icmp.ult i1 v1, v0
-  check v3, 40
+  check v3, 1040
   v4 = icmp.ugt i1 v0, v1
-  check v4, 41
+  check v4, 1041
   v5 = icmp.ule i1 v1, v0
-  check v5, 42
+  check v5, 1042
   v6 = icmp.uge i1 v0, v1
-  check v6, 43
+  check v6, 1043
   v7 = icmp.slt i1 v2, v0
-  check v7, 44
+  check v7, 1044
   v8 = icmp.sle i1 v0, v1
-  check v8, 45
+  check v8, 1045
   v9 = icmp.sgt i1 v1, v2
-  check v9, 46
+  check v9, 1046
   v10 = icmp.sge i1 v0, v2
-  check v10, 47
+  check v10, 1047
   v11 = icmp.eq i1 v0, v0
-  check v11, 48
+  check v11, 1048
   call.rt void print_i64(v1)
   call.rt void print_nl()
   v12 = icmp.ult i1 v0, v1
-  check v12, 49
+  check v12, 1049
   ret v1
 }

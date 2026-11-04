@@ -1,18 +1,23 @@
 ; output: 7
-; trap: 43
+; trap: 1043
 ; check (ne x, 0) is check x in Meri (lower.c); check (eq x, 0) is not,
-; and must stop when x is not 0
+; and must stop when x is not 0 (the codes are exceptions of the table:
+; the verifier takes no code that is not of traps.def or named)
+exception 1041 "Check41"
+exception 1042 "Check42"
+exception 1043 "Check43"
+
 func @main : fn() -> i64 {
 b0:
   v0 = iconst i64 0
   v1 = iconst i64 7
   v2 = icmp.ne i1 v1, v0
-  check v2, 41
+  check v2, 1041
   call.rt void print_i64(v1)
   call.rt void print_nl()
   v3 = icmp.eq i1 v0, v0
-  check v3, 42
+  check v3, 1042
   v4 = icmp.eq i1 v1, v0
-  check v4, 43
+  check v4, 1043
   ret v0
 }
