@@ -34,6 +34,7 @@ machine: no JIT and no AOT yet.
     meri --disasm program.lir        # prints its bytecode
     meri --summary program.lir       # prints what the module holds
     meri --lib-path=DIR program.lir  # where its C libraries are looked for
+    meri --live program.lir          # at the end, what memory still holds
 
 A run-time error stops the program with a message on the standard error
 and exit status 1; `halt(code)` exits with `code`. The language of the

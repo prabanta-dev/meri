@@ -233,9 +233,13 @@ static uint64_t small_alloc(meri_heap *h, uint64_t n)
 
 uint64_t meri_heap_alloc(meri_heap *h, uint64_t n)
 {
+    uint64_t p;
+
     if ((int64_t)n < 0)
         return 0;
-    return SLABS && n <= MERI_SLAB_MAX ? small_alloc(h, n) : large_alloc(h, n);
+    p = SLABS && n <= MERI_SLAB_MAX ? small_alloc(h, n) : large_alloc(h, n);
+    h->nlive += p != 0;
+    return p;
 }
 
 static meri_heap_entry *large_alive(const meri_heap *h, uint64_t v)
@@ -262,6 +266,7 @@ bool meri_heap_free(meri_heap *h, uint64_t p, uint64_t *size)
         uintptr_t a = (uintptr_t)MERI_ADDR(p);
         unsigned c = *(const uint32_t *)(a & ~(ARENA - 1));
         s->live = 0;
+        h->nlive--;
         if (!(h->tagged && s->gen == MERI_GEN_LAST - 1)) {
             *size = 16 * ((uint64_t)c + 1);
             memcpy((void *)a, &h->freel[c], sizeof(void *));
@@ -277,6 +282,7 @@ bool meri_heap_free(meri_heap *h, uint64_t p, uint64_t *size)
     if (!e)
         return false;
     e->live = 0;
+    h->nlive--;
     h->hit = 0; /* it may be this one */
     if (h->tagged && e->gen == MERI_GEN_LAST - 1) {
         /* the last generation: the address is never given out again, so

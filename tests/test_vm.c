@@ -18,6 +18,10 @@
  *   "; strings: <n>"    strings still alive at the end (tests/vm only):
  *                       a missed release leaves one more
  *   "; refs: <n>"       the same for the numbers of BigInt
+ *   "; live: S str, R ref, B blocks" what memory holds at the end
+ *                       (doc/ir.md of Limba, § 12.5): the references to
+ *                       strings and to BigInts, the blocks never freed;
+ *                       compared only when the entry returned
  *   "; link: <text>"    the externs cannot be linked: the message says text,
  *                       and nothing runs
  *   "; memory: broken"  a rule of the strings in memory broken: the first
@@ -138,9 +142,10 @@ typedef struct {
     char never[32];    /* no instruction of the bytecode is this one */
     char compile[128]; /* meri_compile must refuse it with this */
     char msg[256];     /* the words of the exception not caught */
-    bool has_msg;
+    bool has_msg, has_live, bad_live;
     uint64_t strings, refs;
-    uint64_t max_memory; /* 0: 64 MiB */
+    unsigned long long live[3]; /* str, ref, blocks */
+    uint64_t max_memory;        /* 0: 64 MiB */
     unsigned line, col;
 } expect;
 
@@ -186,6 +191,10 @@ static void header(const char *text, expect *e)
         } else if (!strncmp(p, "; never: ", 9) && n - 9 < sizeof(e->never)) {
             memcpy(e->never, p + 9, n - 9);
             e->never[n - 9] = 0;
+        } else if (!strncmp(p, "; live: ", 8)) {
+            e->has_live = sscanf(p + 8, "%llu str, %llu ref, %llu blocks",
+                                 &e->live[0], &e->live[1], &e->live[2]) == 3;
+            e->bad_live = !e->has_live; /* a failure, not a pass */
         } else if (!strncmp(p, "; refs: ", 8)) {
             e->refs = strtoull(p + 8, NULL, 10);
             e->has_refs = true;
@@ -333,6 +342,14 @@ static void one(const char *path)
                   "%s: the words \"%.*s\", expected \"%s\"", path,
                   w ? (int)wn : 0, w ? w : "", e.msg);
         }
+        CHECK(!e.bad_live, "%s: a header \"; live:\" not understood", path);
+        CHECK(!e.has_live || r.status != MERI_OK ||
+                  (r.live_strings == e.live[0] && r.live_refs == e.live[1] &&
+                   r.live_blocks == e.live[2]),
+              "%s: live %" PRIu64 " str, %" PRIu64 " ref, %" PRIu64
+              " blocks, expected %llu, %llu, %llu",
+              path, r.live_strings, r.live_refs, r.live_blocks, e.live[0],
+              e.live[1], e.live[2]);
         CHECK(!e.has_refs || r.live_refs == e.refs,
               "%s: %" PRIu64 " BigInts alive at the end, expected %" PRIu64,
               path, r.live_refs, e.refs);

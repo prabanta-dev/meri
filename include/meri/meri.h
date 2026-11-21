@@ -136,8 +136,10 @@ typedef struct {
     int64_t code; /* the trap or the halt code */
     uint32_t pos; /* where it stopped: a limba_pos index, 0 if unknown */
     uint64_t ret; /* what the entry returned, if it returned */
-    /* the strings of the run still alive when it ended (those in globals
-       and in blocks never freed, or a missed release) */
+    /* the references to strings memory still holds when the run ended
+       (doc/ir.md of Limba, § 12.5): those in globals, in blocks never
+       freed, and every missed release; a string held twice counts 2.
+       They compare with lir_run --check-mem only when the entry returned */
     uint64_t live_strings;
     uint64_t live_refs; /* the same for the numbers of BigInt */
     /* the words of an exception no handler caught (msglen bytes, not
@@ -147,6 +149,9 @@ typedef struct {
        0): its words are those of the module or of traps.def */
     char *msg;
     size_t msglen;
+    /* the blocks of mem_alloc never freed when the run ended (§ 12.5 of
+       Limba's doc/ir.md, as live_strings) */
+    uint64_t live_blocks;
 } meri_result;
 
 /* free what a result owns (msg) and zero it; any number of times. A

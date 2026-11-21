@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- What memory holds at the end of a run (Limba's doc/ir.md § 12.5):
+  `meri_result.live_strings` and `live_refs` count the references memory
+  still holds, not the objects; `live_blocks`, new at the end of
+  `meri_result`, the blocks of `mem_alloc` never freed; `meri --live`
+  writes the three as `lir_run --check-mem` does. A `BigInt` 0 is always
+  the handle 0 (§ 15.7), and a number made before a trap is released.
+  `test_vm` reads `; live:`; two cases of its own (`live_caught`,
+  `live_big_zero`).
 - The run time of Limba `8c7da6f` (the table of runtime.def grows, so a
   `.lir` made before is refused):
   - the files: `file_open` ... `file_delete`, as the reference

@@ -2064,9 +2064,14 @@ void meri_run(const meri_program *p, const char *entry, const meri_env *env,
             free(globals[i]);
         free(globals);
     }
+    /* the references memory still holds (doc/ir.md § 12.5): when the entry
+       has returned no register holds one (every frame released its own,
+       its pads too), so the counts of what is left are those of memory */
     for (i = 0; i < s.nstrs; i++)
-        r->live_strings += s.strs[i]->rc != MERI_RC_IMMORTAL;
+        if (s.strs[i]->rc != MERI_RC_IMMORTAL)
+            r->live_strings += s.strs[i]->rc;
     r->live_refs = meri_big_alive(&s);
+    r->live_blocks = s.heap.nlive;
 #ifdef MERI_PROFILE
     prof_dump();
 #endif

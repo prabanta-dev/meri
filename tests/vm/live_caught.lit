@@ -1,0 +1,42 @@
+; output: caught 1000
+; result: 0
+; strings: 1
+; live: 1 str, 0 ref, 1 blocks
+; what memory holds at the end (doc/ir.md of Limba, § 12.5) after an
+; exception caught in a call: the callee stored a str in a block it never
+; freed, then raised; its frame is left by its pad, and the handler of the
+; caller drops the message. One reference to the str, from the block, and
+; the block stay; the values (the str in the callee's register, the
+; message) never count
+exception 1000 "ParseError"
+
+func @keep : fn() -> void {
+b0:
+  v0 = iconst i64 16
+  v1 = call.rt ptr mem_alloc(v0)
+  v2 = sconst str "ab"
+  v3 = call.rt str str_concat(v2, v2)
+  store v3, v1
+  v4 = iconst i32 1000
+  v5 = iconst i32 0
+  v6 = call.rt str str_concat(v3, v2)
+  raise v4, v5, v6
+}
+
+func @main : fn() -> i64 {
+b0:
+  br b1
+b1 handler b2:
+  call void @keep()
+  br b3
+b2(v0: i32, v1: i32, v2: str):
+  v3 = sconst str "caught "
+  call.rt void print_str(v3)
+  v4 = sext i64 v0
+  call.rt void print_i64(v4)
+  call.rt void print_nl()
+  br b3
+b3:
+  v5 = iconst i64 0
+  ret v5
+}

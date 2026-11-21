@@ -1,0 +1,40 @@
+; output: 0 7
+; result: 0
+; refs: 1
+; live: 0 str, 1 ref, 0 blocks
+; a BigInt 0 is the handle 0 (doc/ir.md of Limba, § 2.1, § 15.7): every
+; function whose result is 0 gives it, as the reference interpreter does,
+; so a global that holds the number 0 holds no reference at the end
+; (§ 12.5); the 7 in the other one holds one. The zeros made by
+; arithmetic (7 - 7) and by a conversion of a string count the same
+global @zero : ref
+global @diff : ref
+global @text : ref
+global @seven : ref
+
+func @main : fn() -> i64 {
+b0:
+  v0 = iconst i64 0
+  v1 = call.rt ref big_from_i64(v0)
+  v2 = gaddr ptr @zero
+  store v1, v2
+  v3 = iconst i64 7
+  v4 = call.rt ref big_from_i64(v3)
+  v5 = call.rt ref big_sub(v4, v4)
+  v6 = gaddr ptr @diff
+  store v5, v6
+  v7 = sconst str "0"
+  v8 = gaddr ptr @text
+  v9 = call.rt i1 str_to_big(v7, v8)
+  v10 = gaddr ptr @seven
+  store v4, v10
+  v11 = load ref v2
+  call.rt void print_big(v11)
+  v12 = sconst str " "
+  call.rt void print_str(v12)
+  v13 = load ref v10
+  call.rt void print_big(v13)
+  call.rt void print_nl()
+  v14 = iconst i64 0
+  ret v14
+}

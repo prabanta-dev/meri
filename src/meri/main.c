@@ -11,6 +11,7 @@
 
 #include <signal.h>
 #include <errno.h>
+#include <inttypes.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -38,6 +39,10 @@ static void usage(FILE *out)
           "             the memory the program may use (blocks, strings,\n"
           "             globals, slots); past it, \"out of memory\". By\n"
           "             default half of the physical memory\n"
+          "  --live     at the end, after everything else, write on stderr\n"
+          "             what memory still holds: \"meri: live: S str, R ref,\n"
+          "             B blocks\" (the references to strings and to BigInts,\n"
+          "             the blocks never freed)\n"
           "  --version  print the version and exit\n"
           "  --help     print this text and exit\n",
           out);
@@ -112,7 +117,7 @@ const char *__asan_default_options(void)
 int main(int argc, char **argv)
 {
     const char *input = NULL;
-    bool summary = false, disasm = false;
+    bool summary = false, disasm = false, live = false;
     uint64_t max_memory = 0;
     limba_module *m;
     limba_diag d;
@@ -140,6 +145,8 @@ int main(int argc, char **argv)
             summary = true;
         } else if (!strcmp(a, "--disasm")) {
             disasm = true;
+        } else if (!strcmp(a, "--live")) {
+            live = true;
         } else if (!strncmp(a, "--lib-path=", 11)) {
             if (nlibdirs < sizeof(libdirs) / sizeof(libdirs[0]))
                 libdirs[nlibdirs++] = a + 11;
@@ -212,6 +219,11 @@ int main(int argc, char **argv)
     meri_run(p, "main", &env, &r);
     meri_flush(stdout, &r);
     status = meri_report(m, &r, stderr);
+    if (live) /* doc/ir.md of Limba, § 12.5: as lir_run --check-mem */
+        fprintf(stderr,
+                "meri: live: %" PRIu64 " str, %" PRIu64 " ref, %" PRIu64
+                " blocks\n",
+                r.live_strings, r.live_refs, r.live_blocks);
     meri_result_free(&r);
     meri_program_free(p);
     limba_module_free(m);

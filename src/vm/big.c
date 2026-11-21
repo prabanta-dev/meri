@@ -151,7 +151,8 @@ uint64_t meri_big_alive(const meri_state *s)
     size_t i;
 
     for (i = 0; i < s->nbigs; i++)
-        n += s->bigs[i]->rc != MERI_RC_IMMORTAL;
+        if (s->bigs[i]->rc != MERI_RC_IMMORTAL)
+            n += s->bigs[i]->rc;
     return n;
 }
 
@@ -308,9 +309,21 @@ static int power(meri_state *s, meri_big *r, mpz_srcptr b, uint64_t n)
 }
 
 /* the value of the new number x in a[0] */
-static int give(uint64_t *a, meri_big *x)
+/* the handle of the new number x: 0 for the number 0, as the reference
+   interpreter gives it (doc/ir.md of Limba, § 2.1, § 15.7), x released
+   then, so that what memory holds at the end counts the same in every
+   engine (§ 12.5) */
+static uint64_t handle(meri_state *s, meri_big *x)
 {
-    a[0] = (uint64_t)(uintptr_t)x;
+    if (mpz_sgn(x->z))
+        return (uint64_t)(uintptr_t)x;
+    meri_big_release(s, (uint64_t)(uintptr_t)x);
+    return 0;
+}
+
+static int give(meri_state *s, uint64_t *a, meri_big *x)
+{
+    a[0] = handle(s, x);
     return 1;
 }
 
@@ -367,7 +380,7 @@ static int library(meri_state *s, uint32_t id, uint64_t *a)
     default: /* LIMBA_RT_BIG_POWMOD: in 0 .. |m| - 1, 0 ** 0 is 1 */
         mpz_powm(r->z, x, num(a[1]), num(a[2]));
     }
-    return give(a, r);
+    return give(s, a, r);
 }
 
 MERI_TOUCHES_PROGRAM int meri_big_call(meri_state *s, uint32_t id, uint64_t *a)
@@ -498,7 +511,9 @@ MERI_TOUCHES_PROGRAM int meri_big_call(meri_state *s, uint32_t id, uint64_t *a)
             break;
         }
         if (res == 1)
-            give(a, r);
+            give(s, a, r);
+        else if (r) /* a trap after it was made: no one holds it */
+            meri_big_release(s, (uint64_t)(uintptr_t)r);
         break;
     }
     case LIMBA_RT_BIG_TO_I64: {
@@ -603,6 +618,7 @@ MERI_TOUCHES_PROGRAM int meri_big_call(meri_state *s, uint32_t id, uint64_t *a)
         }
         if (mpz_set_str(r->z, digits, (int)base)) {
             free(digits);
+            meri_big_release(s, (uint64_t)(uintptr_t)r);
             res = trap(s, LIMBA_TRAP_CONVERSION);
             break;
         }
@@ -610,7 +626,7 @@ MERI_TOUCHES_PROGRAM int meri_big_call(meri_state *s, uint32_t id, uint64_t *a)
         if (neg)
             mpz_neg(r->z, r->z);
         memcpy(&old, (const void *)(uintptr_t)MERI_ADDR(a[1]), sizeof(old));
-        put64(a[1], (uint64_t)(uintptr_t)r);
+        put64(a[1], handle(s, r));
         meri_big_release(s, old);
         a[0] = 1;
         break;

@@ -55,6 +55,7 @@ typedef struct {
                          0: forgotten when a large block is freed */
     size_t capa, useda;
     void *freel[MERI_SLAB_CLASSES]; /* free blocks, linked in their bytes */
+    uint64_t nlive;                 /* the blocks given out and not freed */
     uint8_t *bump[MERI_SLAB_CLASSES], *bump_end[MERI_SLAB_CLASSES];
 } meri_heap;
 
