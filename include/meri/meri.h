@@ -145,8 +145,9 @@ typedef struct {
     /* the words of an exception no handler caught (msglen bytes, not
        terminated): raised with them, or a trap's made when a handler
        caught it and raised it again. The result's own: meri_result_free
-       frees it. NULL for a trap no handler saw (and a raise of the str
-       0): its words are those of the module or of traps.def */
+       frees it. NULL for a trap no handler saw: its words are those of
+       the module or of traps.def. A raise of the str 0 gives "", msglen
+       0 (Limba's doc/ir.md § 13.2, § 13.6) */
     char *msg;
     size_t msglen;
     /* the blocks of mem_alloc never freed when the run ended (§ 12.5 of

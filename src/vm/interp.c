@@ -626,8 +626,10 @@ MERI_TOUCHES_PROGRAM static void run(meri_state *s, const meri_fn *entry,
     bool nd = false;
     /* the exception on its way (progetto_ir.md § 11i): its identity, its
        position (given by raise, or of the point that raised it), its
-       message, a str it holds a reference of (made, as the words of the
-       module or of traps.def, only when a handler catches a trap) */
+       message, a str it holds a reference of, and xmade, whether it has
+       one: given by raise (the str 0 is ""), made by a call, or made as
+       the words of the module or of traps.def only when a handler
+       catches a trap. Only a trap is worded so */
     int64_t xcode = 0;
     uint32_t xpos = 0;
     bool xgiven = false, xmade = false;
@@ -1397,7 +1399,7 @@ op_RAISE: /* the str is the exception's: a reference of its own */
     xpos = (uint32_t)RB;
     xgiven = true;
     xmsg = RC;
-    xmade = RC != 0; /* the str 0: worded as a trap, as lir_run does */
+    xmade = true; /* given, the str 0 too: "" (doc/ir.md § 13.2, § 13.6) */
     meri_str_retain(xmsg);
     if (!limba_exception_catchable(xcode))
         goto uncaught; /* 7, 28 and their family: no handler, no finally */

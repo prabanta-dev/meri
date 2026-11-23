@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- `raise` keeps the message it is given, the handle 0 too (Limba's
+  doc/ir.md § 13.2, § 13.6): the handler receives `""` and an exception
+  no one catches ends with `<prefix>: <Name> at <pos>`, also out of the
+  body of a `par_for`; only a trap gets the words of the module or of
+  traps.def. `meri_result.msg` is then `""` with `msglen` 0. Case
+  `exc_raise_empty`.
 - An empty `str` made at run time is the handle 0 (Limba's doc/ir.md
   § 15.2), as the `BigInt` 0: `str_concat`, `str_mid`, `pos_str`, `arg`,
   `cstr_value`, `cstr_value_n`, `read_line` and `file_read_line` never
