@@ -681,8 +681,8 @@ op_LOADI:
 op_LOADK:
     RA = k[MERI_W_BX(w)];
     NEXT;
-op_LOADS:
-    RA = meri_str_value(p->strs[MERI_W_BX(w)]);
+op_LOADS: /* a constant, never the empty one of meri_str_of: no test */
+    RA = (uint64_t)(uintptr_t)p->strs[MERI_W_BX(w)];
     NEXT;
 
 op_ADD:

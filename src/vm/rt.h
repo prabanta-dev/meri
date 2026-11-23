@@ -64,6 +64,14 @@ static inline void meri_state_give(meri_state *s, uint64_t n)
     s->used -= n < s->used ? n : s->used;
 }
 
+/* what the two below give for 0 bytes: not a string of the run but the
+   empty one of meri_str_of, whose meri_str_value is 0 (Limba's doc/ir.md
+   § 15.2: an empty str made at run time is the handle 0, never an object,
+   never live, outside the budget). Never written: a caller writes no
+   byte of a string of 0, not even the NUL */
+#define MERI_STATE_EMPTY ((meri_str *)&meri_str_empty)
+extern const meri_str meri_str_empty;
+
 /* a string of the run, n bytes from p (p may be NULL for 0), with one
    reference, the caller's; NULL when memory is exhausted */
 meri_str *meri_state_str(meri_state *s, const char *p, size_t n);

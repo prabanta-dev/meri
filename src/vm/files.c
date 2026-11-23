@@ -262,10 +262,10 @@ static int trap_said(meri_state *s, const char *what, const char *name,
 
     if (!x)
         return meri_rt_trap(s, LIMBA_TRAP_NOMEM);
-    memcpy(x->data, what, w);
+    if (w) /* a string of 0 bytes is never written */
+        memcpy(x->data, what, w);
     if (n)
         memcpy(x->data + w, name, n);
-    x->data[w + n] = 0;
     s->trap_msg = meri_str_value(x);
     return meri_rt_trap(s, LIMBA_TRAP_IO);
 }
@@ -354,9 +354,8 @@ int meri_files_call(meri_state *s, uint32_t id, uint64_t *a)
         meri_str *x = meri_state_alloc(s, n);
         if (!x)
             return meri_rt_trap(s, LIMBA_TRAP_NOMEM);
-        if (n)
+        if (n) /* writes the NUL too */
             limba_pos_print(s->p->m, k, x->data, n + 1);
-        x->data[n] = 0;
         a[0] = meri_str_value(x);
         return 1;
     }

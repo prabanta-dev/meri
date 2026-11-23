@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- An empty `str` made at run time is the handle 0 (Limba's doc/ir.md
+  § 15.2), as the `BigInt` 0: `str_concat`, `str_mid`, `pos_str`, `arg`,
+  `cstr_value`, `cstr_value_n`, `read_line` and `file_read_line` never
+  make an object of 0 bytes, so an empty string is never live and takes
+  nothing from the budget. `sconst ""` and the empty initial values stay
+  immortal objects. `str_ptr` of the handle 0 points to a NUL a `load`
+  can read. Case `live_empty_str`.
 - What memory holds at the end of a run (Limba's doc/ir.md § 12.5):
   `meri_result.live_strings` and `live_refs` count the references memory
   still holds, not the objects; `live_blocks`, new at the end of

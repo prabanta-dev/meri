@@ -48,9 +48,12 @@ static inline const meri_str *meri_str_of(uint64_t v)
     return v ? (const meri_str *)(uintptr_t)v : &meri_str_empty;
 }
 
+/* the value of a string: 0 for the empty one of meri_str_of, so that
+   meri_str_value(meri_str_of(v)) is v */
 static inline uint64_t meri_str_value(const meri_str *s)
 {
-    return (uint64_t)(uintptr_t)s;
+    extern const meri_str meri_str_empty;
+    return s == &meri_str_empty ? 0 : (uint64_t)(uintptr_t)s;
 }
 
 #endif

@@ -1,0 +1,101 @@
+; output: 4096 0 1 0
+; result: 0
+; max memory: 65536
+; live: 1 str, 0 ref, 1 blocks
+; an empty str made at run time is the handle 0 (doc/ir.md of Limba,
+; § 15.2): never an object, never live (§ 12.5), outside the budget.
+; 4096 of them stay in a block of 32 KiB under a budget of 64 KiB, which
+; 4096 objects of a string would not fit; each comes from a different
+; function: str_concat of two "", str_mid of 0 bytes, arg outside its
+; range, cstr_value of an empty C string, cstr_value_n of 0 bytes,
+; read_line at the end of the input. The last slot holds "a" ++ "", an
+; object: the one str alive at the end
+func @main : fn() -> i64 {
+b0:
+  v0 = iconst i64 32768
+  v1 = call.rt ptr mem_alloc(v0)
+  v2 = iconst i64 0
+  v3 = iconst i64 4095
+  v4 = sconst str ""
+  v5 = sconst str "xy"
+  v6 = call.rt ptr cstr_new(v4)
+  br b1(v2)
+b1(v7: i64):
+  v8 = icmp.eq i1 v7, v3
+  cbr v8, b3, b2
+b2:
+  v9 = iconst i64 1
+  v10 = addr ptr v1, v7, 8, 0
+  v11 = iconst i64 6
+  v12 = srem i64 v7, v11
+  v13 = iconst i64 0
+  v14 = icmp.eq i1 v12, v13
+  cbr v14, b4, b5
+b4:
+  v15 = call.rt str str_concat(v4, v4)
+  store v15, v10
+  br b9
+b5:
+  v16 = icmp.eq i1 v12, v9
+  cbr v16, b6, b7
+b6:
+  v17 = call.rt str str_mid(v5, v9, v13)
+  store v17, v10
+  br b9
+b7:
+  v18 = iconst i64 2
+  v19 = icmp.eq i1 v12, v18
+  cbr v19, b8, b10
+b8:
+  v20 = iconst i32 0
+  v21 = call.rt str arg(v20)
+  store v21, v10
+  br b9
+b10:
+  v22 = iconst i64 3
+  v23 = icmp.eq i1 v12, v22
+  cbr v23, b11, b12
+b11:
+  v24 = call.rt str cstr_value(v6)
+  store v24, v10
+  br b9
+b12:
+  v25 = iconst i64 4
+  v26 = icmp.eq i1 v12, v25
+  cbr v26, b13, b14
+b13:
+  v27 = call.rt ptr str_ptr(v5)
+  v28 = call.rt str cstr_value_n(v27, v13)
+  store v28, v10
+  br b9
+b14:
+  v29 = call.rt i1 read_line(v10)
+  br b9
+b9:
+  v30 = add i64 v7, v9
+  br b1(v30)
+b3:
+  call.rt void cstr_free(v6)
+  v31 = sconst str "a"
+  v32 = call.rt str str_concat(v31, v4)
+  v33 = addr ptr v1, v3, 8, 0
+  store v32, v33
+  v34 = iconst i64 4096
+  call.rt void print_i64(v34)
+  v35 = sconst str " "
+  call.rt void print_str(v35)
+  v36 = load str v1
+  v37 = call.rt i64 str_len(v36)
+  call.rt void print_i64(v37)
+  call.rt void print_str(v35)
+  v38 = load str v33
+  v39 = call.rt i64 str_len(v38)
+  call.rt void print_i64(v39)
+  call.rt void print_str(v35)
+  v40 = call.rt ptr str_ptr(v36)
+  v41 = load i8 v40
+  v42 = zext i64 v41
+  call.rt void print_i64(v42)
+  call.rt void print_nl()
+  ret v2
+}

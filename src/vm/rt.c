@@ -47,7 +47,8 @@ static uint64_t str_bytes(size_t n)
     return (uint64_t)sizeof(meri_str) + n + 1;
 }
 
-meri_str *meri_state_alloc(meri_state *s, size_t n)
+/* a string object of the run of n bytes, even for 0 */
+static meri_str *new_obj(meri_state *s, size_t n)
 {
     meri_str *x;
 
@@ -75,21 +76,32 @@ meri_str *meri_state_alloc(meri_state *s, size_t n)
     return x;
 }
 
+meri_str *meri_state_alloc(meri_state *s, size_t n)
+{
+    return n ? new_obj(s, n) : MERI_STATE_EMPTY;
+}
+
 meri_str *meri_state_str(meri_state *s, const char *p, size_t n)
 {
-    meri_str *x = meri_state_alloc(s, n);
+    meri_str *x;
 
-    if (x && n)
+    if (!n)
+        return MERI_STATE_EMPTY;
+    x = new_obj(s, n);
+    if (x)
         memcpy(x->data, p, n);
     return x;
 }
 
 meri_str *meri_state_immortal(meri_state *s, const char *p, size_t n)
 {
-    meri_str *x = meri_state_str(s, p, n);
+    meri_str *x = new_obj(s, n); /* "" too: the engine's choice */
 
-    if (x)
+    if (x) {
+        if (n)
+            memcpy(x->data, p, n);
         x->rc = MERI_RC_IMMORTAL;
+    }
     return x;
 }
 
@@ -497,8 +509,10 @@ MERI_TOUCHES_PROGRAM static int strings(meri_state *s, uint32_t id, uint64_t *a)
         if (x->len > SIZE_MAX / 2 || y->len > SIZE_MAX / 2 ||
             !(r = meri_state_alloc(s, x->len + y->len)))
             return nomem(s);
-        memcpy(r->data, x->data, x->len);
-        memcpy(r->data + x->len, y->data, y->len);
+        if (x->len) /* a string of 0 is not written */
+            memcpy(r->data, x->data, x->len);
+        if (y->len)
+            memcpy(r->data + x->len, y->data, y->len);
         a[0] = meri_str_value(r);
         return DONE;
     }
