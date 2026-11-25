@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Limba `f55c380` (`const` and `export` defined, types of 2^32 bytes or
+  more refused): nothing changes in Meri. A write into a `const` global
+  is a wrong module only `lir_run` must see (Limba's doc/ir.md § 3.4):
+  Meri keeps its globals writable, and `test_vm` accepts any end of
+  Limba's `const_*` cases that say `; module: wrong`.
 - `raise` keeps the message it is given, the handle 0 too (Limba's
   doc/ir.md § 13.2, § 13.6): the handler receives `""` and an exception
   no one catches ends with `<prefix>: <Name> at <pos>`, also out of the

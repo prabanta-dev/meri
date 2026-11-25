@@ -39,7 +39,10 @@
  *                       crash nor go on. Except an access outside every
  *                       object alive that is not nil (beyond[] below): Meri
  *                       trusts the module there (README, "What Meri
- *                       trusts"), and only must not crash
+ *                       trusts"), and only must not crash. And except a
+ *                       write into a const global (Limba's const_*.lit):
+ *                       only lir_run must see it (doc/ir.md section 3.4),
+ *                       Meri keeps its globals writable; any end will do
  *   "; compile: <text>" meri_compile refuses the module, saying text
  *   "; needs: slabs"    the small blocks in Meri's own arenas (not under
  *                       AddressSanitizer, where every block is malloc's):
@@ -97,6 +100,16 @@ static bool is_beyond(const char *path)
     return false;
 }
 
+/* a case of Limba whose wrong module is a write into a const global: the
+   behaviour is not defined but in lir_run (doc/ir.md section 3.4) */
+static bool is_const_write(const char *path)
+{
+    const char *base = strrchr(path, '/');
+
+    base = base ? base + 1 : path;
+    return !strncmp(base, "const_", 6);
+}
+
 #define CHECK(cond, ...)                                                       \
     do {                                                                       \
         if (!(cond)) {                                                         \
@@ -136,7 +149,7 @@ typedef struct {
     int status;
     int64_t value; /* the trap code or the result */
     bool has_result, has_at, has_strings, has_refs, skip, any_trap;
-    bool any_end;      /* run: unsupported, or a wrong module beyond[] */
+    bool any_end;      /* run: unsupported, a wrong module beyond[] or const_ */
     char link[128];    /* the linking must fail with this in its message */
     char report[256];  /* meri_report must write this line, if not empty */
     char never[32];    /* no instruction of the bytecode is this one */
@@ -244,6 +257,8 @@ static void one(const char *path)
     if (e.any_trap && is_beyond(path)) {
         e.any_end = true;
         e.skip |= !MERI_SLABS; /* AddressSanitizer */
+    } else if (e.any_trap && is_const_write(path)) {
+        e.any_end = true;
     }
     if (e.skip) {
         skipped++;
