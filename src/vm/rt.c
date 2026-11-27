@@ -226,6 +226,13 @@ static float fv(uint64_t v)
     return f;
 }
 
+static uint64_t fbits(float f)
+{
+    uint32_t u;
+    memcpy(&u, &f, sizeof(u));
+    return u;
+}
+
 /* n bytes to the output; false, the run stopped, if writing fails */
 static bool out(meri_state *s, const void *p, size_t n)
 {
@@ -581,9 +588,72 @@ MERI_TOUCHES_PROGRAM static int strings(meri_state *s, uint32_t id, uint64_t *a)
     return NOT_MINE;
 }
 
+/* the functions of an f32, rounded once straight to f32 (doc/ir.md
+   section 15.5): never the f64 one and fptrunc, which rounds twice */
+static bool maths_f32(uint32_t id, uint64_t *a)
+{
+    float x = fv(a[0]), r;
+
+    switch (id) {
+    case LIMBA_RT_MATH_SIN_F32:
+        r = limba_math_sin_f32(x);
+        break;
+    case LIMBA_RT_MATH_COS_F32:
+        r = limba_math_cos_f32(x);
+        break;
+    case LIMBA_RT_MATH_TAN_F32:
+        r = limba_math_tan_f32(x);
+        break;
+    case LIMBA_RT_MATH_ATAN_F32:
+        r = limba_math_atan_f32(x);
+        break;
+    case LIMBA_RT_MATH_EXP_F32:
+        r = limba_math_exp_f32(x);
+        break;
+    case LIMBA_RT_MATH_LN_F32:
+        r = limba_math_ln_f32(x);
+        break;
+    case LIMBA_RT_MATH_POW_F32:
+        r = limba_math_pow_f32(x, fv(a[1]));
+        break;
+    case LIMBA_RT_MATH_ATAN2_F32:
+        r = limba_math_atan2_f32(x, fv(a[1]));
+        break;
+    case LIMBA_RT_MATH_ASIN_F32:
+        r = limba_math_asin_f32(x);
+        break;
+    case LIMBA_RT_MATH_ACOS_F32:
+        r = limba_math_acos_f32(x);
+        break;
+    case LIMBA_RT_MATH_HYPOT_F32:
+        r = limba_math_hypot_f32(x, fv(a[1]));
+        break;
+    case LIMBA_RT_MATH_LOG2_F32:
+        r = limba_math_log2_f32(x);
+        break;
+    case LIMBA_RT_MATH_LOG10_F32:
+        r = limba_math_log10_f32(x);
+        break;
+    case LIMBA_RT_MATH_SINH_F32:
+        r = limba_math_sinh_f32(x);
+        break;
+    case LIMBA_RT_MATH_COSH_F32:
+        r = limba_math_cosh_f32(x);
+        break;
+    case LIMBA_RT_MATH_TANH_F32:
+        r = limba_math_tanh_f32(x);
+        break;
+    default:
+        return false;
+    }
+    a[0] = fbits(r);
+    return true;
+}
+
 /* the functions of a real: sqrt, trunc, floor and ceil exact in IEEE 754
-   from the C library; the others from Limba's library, the same bits as
-   lir_run on every machine (progetto_ir.md § 11b), never the C one's */
+   from the C library; the others from Limba's library, correctly rounded,
+   the same bits as lir_run on every machine (doc/ir.md section 15.5),
+   never the C one's */
 static bool maths(uint32_t id, uint64_t *a)
 {
     double x = dv(a[0]), r;
@@ -650,7 +720,7 @@ static bool maths(uint32_t id, uint64_t *a)
         r = limba_math_tanh(x);
         break;
     default:
-        return false;
+        return maths_f32(id, a);
     }
     a[0] = dbits(r);
     return true;

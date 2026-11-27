@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Limba `19cb084` (D155, CORE-MATH): the mathematics is correctly
+  rounded, and the 16 functions `math_*_f32` of runtime.def (105-120)
+  run in the VM, each rounded once straight to `f32` by
+  `limba_math_<f>_f32`, never the `f64` one and `fptrunc`. The unary
+  ones are `FMATH` instructions, as those of an `f64`; `pow`, `atan2`
+  and `hypot` are calls of the run time. A `.lir` written before is
+  refused (the fingerprint of the run time changes).
 - Limba `f55c380` (`const` and `export` defined, types of 2^32 bytes or
   more refused): nothing changes in Meri. A write into a `const` global
   is a wrong module only `lir_run` must see (Limba's doc/ir.md § 3.4):

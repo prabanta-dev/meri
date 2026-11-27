@@ -1490,6 +1490,25 @@ op_FMATH: { /* Limba's library but where IEEE 754 is exact (math.h) */
     case LIMBA_RT_MATH_CEIL:
         v = ceil(v);
         break;
+    case LIMBA_RT_MATH_SIN_F32:
+    case LIMBA_RT_MATH_COS_F32:
+    case LIMBA_RT_MATH_TAN_F32:
+    case LIMBA_RT_MATH_ATAN_F32:
+    case LIMBA_RT_MATH_EXP_F32:
+    case LIMBA_RT_MATH_LN_F32:
+    case LIMBA_RT_MATH_ASIN_F32:
+    case LIMBA_RT_MATH_ACOS_F32:
+    case LIMBA_RT_MATH_LOG2_F32:
+    case LIMBA_RT_MATH_LOG10_F32:
+    case LIMBA_RT_MATH_SINH_F32:
+    case LIMBA_RT_MATH_COSH_F32:
+    case LIMBA_RT_MATH_TANH_F32:
+        /* an f32 and its result, each exact in a double: the function is
+           the _f32 one, rounded once (math.h) */
+        v = fv(RB);
+        limba_math_call(MERI_W_C(w), &v, &v);
+        RA = fb((float)v);
+        NEXT;
     default: /* the others of one real: asin ... tanh */
         limba_math_call(MERI_W_C(w), &v, &v);
     }

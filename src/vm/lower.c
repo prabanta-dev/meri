@@ -1221,8 +1221,9 @@ static uint32_t string_index(L *l, limba_id s)
     return p->nstrs++;
 }
 
-/* a runtime call of f64 -> f64 as an instruction of its own (FSQRT,
-   FMATH): no copies to the outgoing registers; false if in is not one */
+/* a runtime call of f64 -> f64 or f32 -> f32 as an instruction of its
+   own (FSQRT, FMATH): no copies to the outgoing registers; false if in is
+   not one */
 static bool math1(L *l, uint32_t id, const limba_inst *in)
 {
     const uint32_t *o = l->f->operands + in->first;
@@ -1246,6 +1247,19 @@ static bool math1(L *l, uint32_t id, const limba_inst *in)
     case LIMBA_RT_MATH_SINH:
     case LIMBA_RT_MATH_COSH:
     case LIMBA_RT_MATH_TANH:
+    case LIMBA_RT_MATH_SIN_F32:
+    case LIMBA_RT_MATH_COS_F32:
+    case LIMBA_RT_MATH_TAN_F32:
+    case LIMBA_RT_MATH_ATAN_F32:
+    case LIMBA_RT_MATH_EXP_F32:
+    case LIMBA_RT_MATH_LN_F32:
+    case LIMBA_RT_MATH_ASIN_F32:
+    case LIMBA_RT_MATH_ACOS_F32:
+    case LIMBA_RT_MATH_LOG2_F32:
+    case LIMBA_RT_MATH_LOG10_F32:
+    case LIMBA_RT_MATH_SINH_F32:
+    case LIMBA_RT_MATH_COSH_F32:
+    case LIMBA_RT_MATH_TANH_F32:
         break;
     default:
         return false;
